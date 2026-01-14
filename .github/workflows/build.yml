@@ -9,7 +9,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
       - name: Grant gradlew permission
         run: chmod +x gradlew
@@ -23,9 +24,13 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Read build config
+      - name: Download config from Hostinger
         run: |
-          curl https://savist.online/builder/data/build.json -o config/build.json
+          curl https://YOURDOMAIN.com/builder/data/build.json -o config/build.json
+
+      - name: Update App Config
+        run: |
+          APP_NAME=$(jq -r '.app_name' config/build.json)
           PKG=$(jq -r '.package_name' config/build.json)
           URL=$(jq -r '.website_url' config/build.json)
 
@@ -49,7 +54,7 @@ jobs:
         run: ./gradlew assembleRelease
 
       - name: Upload APK to Hostinger
-        uses: SamKirkland/FTP-Deploy-Action@v4
+        uses: SamKirkland/FTP-Deploy-Action@v4.1.1
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USER }}
