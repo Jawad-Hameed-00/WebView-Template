@@ -64,7 +64,7 @@ jobs:
 
       # Step 9: Upload APK to Hostinger via FTP
       - name: Upload APK to Hostinger
-        uses: SamKirkland/FTP-Deploy-Action@4.3.6
+        uses: SamKirkland/FTP-Deploy-Action@4.3.3
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USER }}
