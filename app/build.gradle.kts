@@ -19,6 +19,28 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            // Fetch from Gradle properties
+            val keystoreFileProp = project.findProperty("KEYSTORE_FILE")?.toString() ?: ""
+            val keyAliasProp = project.findProperty("KEY_ALIAS")?.toString() ?: ""
+
+            if (keystoreFileProp.isNotEmpty() && keyAliasProp.isNotEmpty()) {
+                storeFile = file(keystoreFileProp)
+                storePassword = "android"
+                keyAlias = keyAliasProp
+                keyPassword = "android"
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
