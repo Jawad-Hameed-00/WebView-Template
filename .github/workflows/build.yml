@@ -2,7 +2,7 @@ name: Build WebView APK
 
 on:
   repository_dispatch:
-    types: [build_apk]  # Triggered by PHP
+    types: [build_apk]
 
 jobs:
   build:
@@ -38,15 +38,19 @@ jobs:
           mkdir -p config
           curl https://savist.online/builder/data/build.json -o config/build.json
 
-      # 7. Update app config
+      # 7. Update app config and version
       - name: Update App Config
         run: |
           APP_NAME=$(jq -r '.app_name' config/build.json)
           PKG=$(jq -r '.package_name' config/build.json)
           URL=$(jq -r '.website_url' config/build.json)
+          VERSION_CODE=$(date +%s)  # unique version code
 
           echo "Updating applicationId in build.gradle.kts"
           sed -i "s|applicationId = \".*\"|applicationId = \"$PKG\"|" app/build.gradle.kts
+
+          echo "Updating versionCode in build.gradle.kts"
+          sed -i "s|versionCode .*|versionCode $VERSION_CODE|" app/build.gradle.kts
 
           echo "Updating app_name in strings.xml"
           sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">$APP_NAME</string>|" app/src/main/res/values/strings.xml
@@ -54,26 +58,39 @@ jobs:
           echo "Updating website_url in strings.xml"
           sed -i "s|<string name=\"website_url\">.*</string>|<string name=\"website_url\">$URL</string>|" app/src/main/res/values/strings.xml
 
-      # 8. Generate keystore
-      - name: Generate keystore
+      # 8. Generate unique keystore
+      - name: Generate unique keystore
         run: |
+          KEYSTORE_FILE="keystore_$PKG.jks"
           keytool -genkeypair \
-            -keystore keystore.jks \
+            -keystore "$KEYSTORE_FILE" \
             -storepass android \
             -keypass android \
-            -alias key0 \
+            -alias "$PKG" \
             -keyalg RSA \
             -keysize 2048 \
             -validity 10000 \
-            -dname "CN=WebView Builder"
+            -dname "CN=$APP_NAME"
 
-      # 9. Build release APK
+          echo "Generated keystore: $KEYSTORE_FILE"
+
+      # 9. Build release APK using unique keystore
       - name: Build Release APK
-        run: ./gradlew assembleRelease
+        run: |
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file="$KEYSTORE_FILE" \
+            -Pandroid.injected.signing.store.password=android \
+            -Pandroid.injected.signing.key.alias="$PKG" \
+            -Pandroid.injected.signing.key.password=android
 
-      # 10. Upload APK as artifact (v4)
-      - name: Upload APK as artifact
+          # Rename APK for uniqueness
+          mv app/build/outputs/apk/release/app-release.apk "app_$PKG.apk"
+
+      # 10. Upload APK and keystore as artifact
+      - name: Upload APK and keystore
         uses: actions/upload-artifact@v4
         with:
           name: webview-apk
-          path: app/build/outputs/apk/release/*.apk
+          path: |
+            app_$PKG.apk
+            keystore_$PKG.jks
