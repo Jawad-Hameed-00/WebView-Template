@@ -92,7 +92,7 @@ jobs:
 
       # 9️⃣ Upload APK as artifact
       - name: Upload APK
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: "app_$PKG"
           path: "app_$PKG.apk"
