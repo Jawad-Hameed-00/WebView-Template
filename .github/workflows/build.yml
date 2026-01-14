@@ -61,3 +61,4 @@ jobs:
           password: ${{ secrets.FTP_PASS }}
           local-dir: app/build/outputs/apk/release/
           server-dir: /public_html/apk/
+
