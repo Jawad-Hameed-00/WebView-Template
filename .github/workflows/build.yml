@@ -13,28 +13,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Setup Java & Android
+      # 2️⃣ Grant execute permission to Gradle wrapper
+      - name: Grant Gradle permission
+        run: chmod +x ./gradlew
+
+      # 3️⃣ Setup Java
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
+      # 4️⃣ Setup Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # 3️⃣ Install jq to parse JSON
+      # 5️⃣ Install jq for JSON parsing
       - name: Install jq
         run: sudo apt-get install -y jq
 
-      # 4️⃣ Download build config from savist.online
+      # 6️⃣ Download build.json config
       - name: Download build.json
         run: |
           mkdir -p config
           curl -fSL https://savist.online/builder/data/build.json -o config/build.json
           cat config/build.json
 
-      # 5️⃣ Parse JSON and export variables
+      # 7️⃣ Parse JSON and export environment variables
       - name: Parse build config
         id: parse
         run: |
@@ -43,7 +48,7 @@ jobs:
           URL=$(jq -r '.website_url' config/build.json)
 
           if [ -z "$APP_NAME" ] || [ -z "$PKG" ] || [ -z "$URL" ]; then
-            echo "ERROR: One of the required fields (app_name, package_name, website_url) is missing!"
+            echo "ERROR: One of the required fields is missing!"
             exit 1
           fi
 
@@ -51,15 +56,14 @@ jobs:
           echo "PKG=$PKG" >> $GITHUB_ENV
           echo "URL=$URL" >> $GITHUB_ENV
 
-      # 6️⃣ Update Gradle & strings
+      # 8️⃣ Update Gradle & strings.xml
       - name: Update app config
         run: |
-          echo "Updating app package and strings..."
           sed -i "s/applicationId \".*\"/applicationId \"$PKG\"/" app/build.gradle.kts
           sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">$APP_NAME</string>|" app/src/main/res/values/strings.xml
           sed -i "s|<string name=\"website_url\">.*</string>|<string name=\"website_url\">$URL</string>|" app/src/main/res/values/strings.xml
 
-      # 7️⃣ Generate unique keystore
+      # 9️⃣ Generate unique keystore
       - name: Generate keystore
         run: |
           KEYSTORE_FILE="keystore_$PKG.jks"
@@ -75,12 +79,12 @@ jobs:
             -dname "CN=$APP_NAME"
           echo "Generated keystore: $KEYSTORE_FILE"
 
-      # 8️⃣ Build release APK
+      # 🔟 Build APK
       - name: Build APK
         run: |
           ./gradlew assembleRelease
 
-          # Automatically find APK file
+          # Automatically find APK
           APK_FILE=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
           if [ -z "$APK_FILE" ]; then
             echo "ERROR: APK not found!"
@@ -90,14 +94,14 @@ jobs:
           mv "$APK_FILE" "app_$PKG.apk"
           echo "APK built: app_$PKG.apk"
 
-      # 9️⃣ Upload APK as artifact
+      # 1️⃣1️⃣ Upload APK as artifact
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: "app_$PKG"
           path: "app_$PKG.apk"
 
-      # 🔟 Upload keystore as artifact
+      # 1️⃣2️⃣ Upload keystore as artifact
       - name: Upload keystore
         uses: actions/upload-artifact@v4
         with:
