@@ -76,7 +76,9 @@ jobs:
             -PKEY_ALIAS="$PKG"
 
           # Rename APK for uniqueness
-          mv app/build/outputs/apk/release/app-release.apk "app_$PKG.apk"
+          APK_FILE=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          mv "$APK_FILE" "app_$PKG.apk"
+
 
       # 9️⃣ Upload APK and keystore as artifacts
       - name: Upload APK and keystore
