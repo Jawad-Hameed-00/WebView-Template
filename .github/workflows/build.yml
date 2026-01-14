@@ -1,0 +1,58 @@
+name: Build WebView APK
+
+on:
+  repository_dispatch:
+    types: [build_apk]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Grant gradlew permission
+        run: chmod +x gradlew
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Read build config
+        run: |
+          APP_NAME=$(jq -r '.app_name' config/build.json)
+          PKG=$(jq -r '.package_name' config/build.json)
+          URL=$(jq -r '.website_url' config/build.json)
+
+          sed -i "s/applicationId \".*\"/applicationId \"$PKG\"/" app/build.gradle
+          sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">$APP_NAME</string>|" app/src/main/res/values/strings.xml
+          sed -i "s|<string name=\"website_url\">.*</string>|<string name=\"website_url\">$URL</string>|" app/src/main/res/values/strings.xml
+
+      - name: Generate keystore
+        run: |
+          keytool -genkeypair \
+          -keystore keystore.jks \
+          -storepass android \
+          -keypass android \
+          -alias key0 \
+          -keyalg RSA \
+          -keysize 2048 \
+          -validity 10000 \
+          -dname "CN=WebView Builder"
+
+      - name: Build APK
+        run: ./gradlew assembleRelease
+
+      - name: Upload APK to Hostinger
+        uses: SamKirkland/FTP-Deploy-Action@v4
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASS }}
+          local-dir: app/build/outputs/apk/release/
+          server-dir: /public_html/apk/
