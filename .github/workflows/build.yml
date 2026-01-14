@@ -9,25 +9,32 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      # Step 1: Checkout the repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
+      # Step 2: Give gradlew execution permission
       - name: Grant gradlew permission
         run: chmod +x gradlew
 
-      - name: Setup Java
+      # Step 3: Setup Java
+      - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
+      # Step 4: Setup Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Download config from Hostinger
+      # Step 5: Download build configuration from Hostinger
+      - name: Download build config
         run: |
+          mkdir -p config
           curl https://YOURDOMAIN.com/builder/data/build.json -o config/build.json
 
+      # Step 6: Update App Config (App Name, Package Name, URL)
       - name: Update App Config
         run: |
           APP_NAME=$(jq -r '.app_name' config/build.json)
@@ -38,6 +45,7 @@ jobs:
           sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">$APP_NAME</string>|" app/src/main/res/values/strings.xml
           sed -i "s|<string name=\"website_url\">.*</string>|<string name=\"website_url\">$URL</string>|" app/src/main/res/values/strings.xml
 
+      # Step 7: Generate keystore
       - name: Generate keystore
         run: |
           keytool -genkeypair \
@@ -50,15 +58,16 @@ jobs:
           -validity 10000 \
           -dname "CN=WebView Builder"
 
-      - name: Build APK
+      # Step 8: Build APK
+      - name: Build Release APK
         run: ./gradlew assembleRelease
 
+      # Step 9: Upload APK to Hostinger via FTP
       - name: Upload APK to Hostinger
-        uses: SamKirkland/FTP-Deploy-Action@v4.1.1
+        uses: SamKirkland/ftp-deploy-action@v4.3.6
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASS }}
           local-dir: app/build/outputs/apk/release/
           server-dir: /public_html/apk/
-
