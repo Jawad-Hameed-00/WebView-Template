@@ -25,7 +25,7 @@ jobs:
 
       - name: Read build config
         run: |
-          APP_NAME=$(jq -r '.app_name' config/build.json)
+          curl https://savist.online/builder/data/build.json -o config/build.json
           PKG=$(jq -r '.package_name' config/build.json)
           URL=$(jq -r '.website_url' config/build.json)
 
