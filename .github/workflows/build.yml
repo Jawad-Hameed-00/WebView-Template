@@ -2,39 +2,39 @@ name: Build WebView APK
 
 on:
   repository_dispatch:
-    types: [build_apk]
+    types: [build_apk]  # Triggered via PHP
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout the repository
-      - name: Checkout code
+      # 1. Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      # Step 2: Give gradlew execution permission
+      # 2. Gradlew permission
       - name: Grant gradlew permission
         run: chmod +x gradlew
 
-      # Step 3: Setup Java
+      # 3. Setup Java
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      # Step 4: Setup Android SDK
+      # 4. Setup Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # Step 5: Download build configuration from Hostinger
+      # 5. Download build config (from your Hostinger server)
       - name: Download build config
         run: |
           mkdir -p config
           curl https://savist.online/builder/data/build.json -o config/build.json
 
-      # Step 6: Update App Config (App Name, Package Name, URL)
+      # 6. Update app config
       - name: Update App Config
         run: |
           APP_NAME=$(jq -r '.app_name' config/build.json)
@@ -45,29 +45,26 @@ jobs:
           sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">$APP_NAME</string>|" app/src/main/res/values/strings.xml
           sed -i "s|<string name=\"website_url\">.*</string>|<string name=\"website_url\">$URL</string>|" app/src/main/res/values/strings.xml
 
-      # Step 7: Generate keystore
+      # 7. Generate keystore
       - name: Generate keystore
         run: |
           keytool -genkeypair \
-          -keystore keystore.jks \
-          -storepass android \
-          -keypass android \
-          -alias key0 \
-          -keyalg RSA \
-          -keysize 2048 \
-          -validity 10000 \
-          -dname "CN=WebView Builder"
+            -keystore keystore.jks \
+            -storepass android \
+            -keypass android \
+            -alias key0 \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=WebView Builder"
 
-      # Step 8: Build APK
+      # 8. Build release APK
       - name: Build Release APK
         run: ./gradlew assembleRelease
 
-      # Step 9: Upload APK to Hostinger via FTP
-      - name: Upload APK to Hostinger
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.3
+      # 9. Upload APK as artifact
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v3
         with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USER }}
-          password: ${{ secrets.FTP_PASS }}
-          local-dir: app/build/outputs/apk/release/
-          server-dir: /public_html/apk/
+          name: webview-apk
+          path: app/build/outputs/apk/release/*.apk
