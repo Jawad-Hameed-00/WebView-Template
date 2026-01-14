@@ -99,7 +99,7 @@ jobs:
 
       # 🔟 Upload keystore as artifact
       - name: Upload keystore
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: "keystore_$PKG"
           path: "keystore_$PKG.jks"
