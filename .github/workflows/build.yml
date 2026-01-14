@@ -9,56 +9,50 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout repo
+      # 1️⃣ Checkout repo
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Debug: List files
-      - name: List project files
-        run: ls -R
-
-      # 3. Grant Gradle permission
-      - name: Make gradlew executable
+      # 2️⃣ Make gradlew executable
+      - name: Grant gradlew permission
         run: chmod +x gradlew
 
-      # 4. Setup Java
-      - name: Setup Java 17
+      # 3️⃣ Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      # 5. Setup Android SDK
+      # 4️⃣ Setup Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # 6. Download build config from Hostinger
+      # 5️⃣ Download build.json from Hostinger
       - name: Download build config
         run: |
           mkdir -p config
           curl https://savist.online/builder/data/build.json -o config/build.json
 
-      # 7. Update app config and version
+      # 6️⃣ Update app config, package, versionCode, versionName
       - name: Update App Config
         run: |
           APP_NAME=$(jq -r '.app_name' config/build.json)
           PKG=$(jq -r '.package_name' config/build.json)
           URL=$(jq -r '.website_url' config/build.json)
-          VERSION_CODE=$(date +%s)  # unique version code
+          VERSION_CODE=$(date +%s)
+          VERSION_NAME="1.0.$VERSION_CODE"
 
-          echo "Updating applicationId in build.gradle.kts"
+          echo "Updating build.gradle.kts"
           sed -i "s|applicationId = \".*\"|applicationId = \"$PKG\"|" app/build.gradle.kts
-
-          echo "Updating versionCode in build.gradle.kts"
           sed -i "s|versionCode .*|versionCode = $VERSION_CODE|" app/build.gradle.kts
+          sed -i "s|versionName .*|versionName = \"$VERSION_NAME\"|" app/build.gradle.kts
 
-          echo "Updating app_name in strings.xml"
+          echo "Updating strings.xml"
           sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">$APP_NAME</string>|" app/src/main/res/values/strings.xml
-
-          echo "Updating website_url in strings.xml"
           sed -i "s|<string name=\"website_url\">.*</string>|<string name=\"website_url\">$URL</string>|" app/src/main/res/values/strings.xml
 
-      # 8. Generate unique keystore
+      # 7️⃣ Generate unique keystore for this APK
       - name: Generate unique keystore
         run: |
           KEYSTORE_FILE="keystore_$PKG.jks"
@@ -74,19 +68,17 @@ jobs:
 
           echo "Generated keystore: $KEYSTORE_FILE"
 
-      # 9. Build release APK using unique keystore
+      # 8️⃣ Build release APK using dynamic keystore
       - name: Build Release APK
         run: |
           ./gradlew assembleRelease \
-            -Pandroid.injected.signing.store.file="$KEYSTORE_FILE" \
-            -Pandroid.injected.signing.store.password=android \
-            -Pandroid.injected.signing.key.alias="$PKG" \
-            -Pandroid.injected.signing.key.password=android
+            -PKEYSTORE_FILE="$KEYSTORE_FILE" \
+            -PKEY_ALIAS="$PKG"
 
           # Rename APK for uniqueness
           mv app/build/outputs/apk/release/app-release.apk "app_$PKG.apk"
 
-      # 10. Upload APK and keystore as artifact
+      # 9️⃣ Upload APK and keystore as artifacts
       - name: Upload APK and keystore
         uses: actions/upload-artifact@v4
         with:
