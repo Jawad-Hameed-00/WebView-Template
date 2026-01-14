@@ -9,11 +9,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      # 1️⃣ Checkout repo
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Grant gradlew permission
-        run: chmod +x gradlew
-
+      # 2️⃣ Setup Java & Android
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -23,36 +23,83 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Read build config
+      # 3️⃣ Install jq to parse JSON
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      # 4️⃣ Download build config from savist.online
+      - name: Download build.json
+        run: |
+          mkdir -p config
+          curl -fSL https://savist.online/builder/data/build.json -o config/build.json
+          cat config/build.json
+
+      # 5️⃣ Parse JSON and export variables
+      - name: Parse build config
+        id: parse
         run: |
           APP_NAME=$(jq -r '.app_name' config/build.json)
           PKG=$(jq -r '.package_name' config/build.json)
           URL=$(jq -r '.website_url' config/build.json)
 
-          sed -i "s/applicationId \".*\"/applicationId \"$PKG\"/" app/build.gradle
+          if [ -z "$APP_NAME" ] || [ -z "$PKG" ] || [ -z "$URL" ]; then
+            echo "ERROR: One of the required fields (app_name, package_name, website_url) is missing!"
+            exit 1
+          fi
+
+          echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
+          echo "PKG=$PKG" >> $GITHUB_ENV
+          echo "URL=$URL" >> $GITHUB_ENV
+
+      # 6️⃣ Update Gradle & strings
+      - name: Update app config
+        run: |
+          echo "Updating app package and strings..."
+          sed -i "s/applicationId \".*\"/applicationId \"$PKG\"/" app/build.gradle.kts
           sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">$APP_NAME</string>|" app/src/main/res/values/strings.xml
           sed -i "s|<string name=\"website_url\">.*</string>|<string name=\"website_url\">$URL</string>|" app/src/main/res/values/strings.xml
 
+      # 7️⃣ Generate unique keystore
       - name: Generate keystore
         run: |
+          KEYSTORE_FILE="keystore_$PKG.jks"
+          echo "Generating keystore for $APP_NAME / $PKG"
           keytool -genkeypair \
-          -keystore keystore.jks \
-          -storepass android \
-          -keypass android \
-          -alias key0 \
-          -keyalg RSA \
-          -keysize 2048 \
-          -validity 10000 \
-          -dname "CN=WebView Builder"
+            -keystore "$KEYSTORE_FILE" \
+            -storepass android \
+            -keypass android \
+            -alias "$PKG" \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=$APP_NAME"
+          echo "Generated keystore: $KEYSTORE_FILE"
 
+      # 8️⃣ Build release APK
       - name: Build APK
-        run: ./gradlew assembleRelease
+        run: |
+          ./gradlew assembleRelease
 
-      - name: Upload APK to Hostinger
-        uses: SamKirkland/FTP-Deploy-Action@v4
+          # Automatically find APK file
+          APK_FILE=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$APK_FILE" ]; then
+            echo "ERROR: APK not found!"
+            exit 1
+          fi
+
+          mv "$APK_FILE" "app_$PKG.apk"
+          echo "APK built: app_$PKG.apk"
+
+      # 9️⃣ Upload APK as artifact
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USER }}
-          password: ${{ secrets.FTP_PASS }}
-          local-dir: app/build/outputs/apk/release/
-          server-dir: /public_html/apk/
+          name: "app_$PKG"
+          path: "app_$PKG.apk"
+
+      # 🔟 Upload keystore as artifact
+      - name: Upload keystore
+        uses: actions/upload-artifact@v4
+        with:
+          name: "keystore_$PKG"
+          path: "keystore_$PKG.jks"
