@@ -32,7 +32,7 @@ jobs:
       - name: Download build config
         run: |
           mkdir -p config
-          curl https://YOURDOMAIN.com/builder/data/build.json -o config/build.json
+          curl https://savist.online/builder/data/build.json -o config/build.json
 
       # Step 6: Update App Config (App Name, Package Name, URL)
       - name: Update App Config
@@ -64,7 +64,7 @@ jobs:
 
       # Step 9: Upload APK to Hostinger via FTP
       - name: Upload APK to Hostinger
-        uses: SamKirkland/FTP-Deploy-Action@4.3.3
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.3
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USER }}
