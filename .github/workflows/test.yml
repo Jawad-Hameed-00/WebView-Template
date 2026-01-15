@@ -180,57 +180,30 @@ jobs:
           esac
         done
 
-    # --------------------------------------------------
-    # Update strings.xml (FIXED heredoc syntax)
+       # --------------------------------------------------
+    # Update strings.xml (Replace entire file)
     # --------------------------------------------------
     - name: Update strings.xml
       run: |
         echo "Updating strings.xml..."
         
-        # Find strings.xml
-        STRINGS_FILE=$(find app/src/main/res -name "strings.xml" 2>/dev/null | head -1)
+        # Create directory
+        mkdir -p app/src/main/res/values
         
-        if [ -z "$STRINGS_FILE" ]; then
-          echo "strings.xml not found, creating it..."
-          mkdir -p app/src/main/res/values
-          STRINGS_FILE="app/src/main/res/values/strings.xml"
-          
-          # Create strings.xml using echo instead of heredoc
-          echo '<?xml version="1.0" encoding="utf-8"?>' > "$STRINGS_FILE"
-          echo '<resources>' >> "$STRINGS_FILE"
-          echo '    <string name="app_name">My App</string>' >> "$STRINGS_FILE"
-          echo '    <string name="website_url">https://example.com</string>' >> "$STRINGS_FILE"
-          echo '</resources>' >> "$STRINGS_FILE"
-        fi
+        # Create new strings.xml with dynamic values
+        cat > app/src/main/res/values/strings.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <resources>
+          <string name="app_name">Google</string>
+          <string name="website_url">https://google.com/</string>
+        </resources>
+          EOF
         
-        echo "Using strings.xml at: $STRINGS_FILE"
+        echo "Created strings.xml:"
+        cat app/src/main/res/values/strings.xml
         
-        # Create a temporary backup outside res directory
-        TEMP_BACKUP="/tmp/strings_backup.xml"
-        cp "$STRINGS_FILE" "$TEMP_BACKUP"
-        
-        # Update app_name
-        if grep -q 'name="app_name"' "$STRINGS_FILE"; then
-          sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">${{ steps.config.outputs.APP_NAME }}</string>|g" "$STRINGS_FILE"
-        else
-          # Insert before </resources>
-          sed -i "s|</resources>|    <string name=\"app_name\">${{ steps.config.outputs.APP_NAME }}</string>\n</resources>|g" "$STRINGS_FILE"
-        fi
-        
-        # Update website_url
-        if grep -q 'name="website_url"' "$STRINGS_FILE"; then
-          sed -i "s|<string name=\"website_url\">.*</string>|<string name=\"website_url\">${{ steps.config.outputs.WEBSITE_URL }}</string>|g" "$STRINGS_FILE"
-        else
-          # Insert before </resources>
-          sed -i "s|</resources>|    <string name=\"website_url\">${{ steps.config.outputs.WEBSITE_URL }}</string>\n</resources>|g" "$STRINGS_FILE"
-        fi
-        
-        echo "Updated strings.xml:"
-        cat "$STRINGS_FILE"
-        
-        # Clean up any existing backup files in res directory
+        # Clean up any backup files
         find app/src/main/res -name "*.backup" -o -name "*.bak" -o -name "*.back" -delete 2>/dev/null || true
-
     # --------------------------------------------------
     # Update package name in all files
     # --------------------------------------------------
