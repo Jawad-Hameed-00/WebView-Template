@@ -132,12 +132,12 @@ jobs:
         # Add to gradle.properties
         cat >> gradle.properties << 'EOF'
 
-# Auto-generated signing config
-RELEASE_STORE_FILE=$(pwd)/release.jks
-RELEASE_STORE_PASSWORD=android123
-RELEASE_KEY_ALIAS=release
-RELEASE_KEY_PASSWORD=android123
-EOF
+        # Auto-generated signing config
+        RELEASE_STORE_FILE=$(pwd)/release.jks
+        RELEASE_STORE_PASSWORD=android123
+        RELEASE_KEY_ALIAS=release
+        RELEASE_KEY_PASSWORD=android123
+        EOF
 
     # --------------------------------------------------
     # Download and update app logo
@@ -202,12 +202,12 @@ EOF
           mkdir -p app/src/main/res/values
           STRINGS_FILE="app/src/main/res/values/strings.xml"
           cat > "$STRINGS_FILE" << 'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">My App</string>
-    <string name="website_url">https://example.com</string>
-</resources>
-EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+            <string name="app_name">My App</string>
+            <string name="website_url">https://example.com</string>
+          </resources>
+          EOF
         fi
         
         echo "Using strings.xml at: $STRINGS_FILE"
@@ -365,7 +365,7 @@ EOF
         # Add resource exclusion patterns
         cat >> gradle.properties << 'EOF'
 
-      # Exclude backup files from resources
+        # Exclude backup files from resources
         android.resourceExcludes=**/*.backup,**/*.bak,**/*~
          EOF
 
