@@ -22,7 +22,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        ref: main  # or master
+        ref: master  # or master
 
     # --------------------------------------------------
     # Set up JDK
