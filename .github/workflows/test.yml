@@ -134,120 +134,42 @@ jobs:
         echo "RELEASE_KEY_PASSWORD=android123" >> gradle.properties
 
     # --------------------------------------------------
-    # COMPLETE LOGO PROCESSING WITH PNG ONLY (FIXED)
+    # Download and update app logo
     # --------------------------------------------------
-    - name: Process App Logo for All Densities
+    - name: Download and update app logo
       run: |
-        echo "=== PROCESSING APP LOGO FOR ALL DENSITIES (PNG ONLY) ==="
+        echo "Downloading logo from: ${{ steps.config.outputs.LOGO_URL }}"
         
-        # Install required tools
-        echo "Installing required tools..."
         sudo apt-get update
         sudo apt-get install -y imagemagick
         
-        # Download logo
-        echo "Downloading logo from: ${{ steps.config.outputs.LOGO_URL }}"
-        wget -O original_logo.png "${{ steps.config.outputs.LOGO_URL }}"
+        wget -O downloaded_logo.png "${{ steps.config.outputs.LOGO_URL }}"
         
-        # Verify logo is 512x512
-        echo "Verifying logo dimensions..."
-        dimensions=$(identify -format "%wx%h" original_logo.png)
-        if [ "$dimensions" != "512x512" ]; then
-          echo "Resizing logo to 512x512..."
-          convert original_logo.png -resize 512x512! original_logo.png
-        fi
-        
-        # Remove ALL existing mipmap folders first
-        echo "Cleaning existing mipmap folders..."
-        rm -rf app/src/main/res/mipmap-*
-        
-        echo "Creating PNG icons for all densities..."
-        
-        # 1. mipmap-mdpi (48x48 pixels) - 1x
-        mkdir -p app/src/main/res/mipmap-mdpi
-        convert original_logo.png -resize 48x48 app/src/main/res/mipmap-mdpi/ic_launcher.png
-        convert original_logo.png -resize 48x48 app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png
-        convert original_logo.png -resize 48x48 -alpha set -background none -vignette 0x0 app/src/main/res/mipmap-mdpi/ic_launcher_round.png
-        
-        # 2. mipmap-hdpi (72x72 pixels) - 1.5x
-        mkdir -p app/src/main/res/mipmap-hdpi
-        convert original_logo.png -resize 72x72 app/src/main/res/mipmap-hdpi/ic_launcher.png
-        convert original_logo.png -resize 72x72 app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png
-        convert original_logo.png -resize 72x72 -alpha set -background none -vignette 0x0 app/src/main/res/mipmap-hdpi/ic_launcher_round.png
-        
-        # 3. mipmap-xhdpi (96x96 pixels) - 2x
-        mkdir -p app/src/main/res/mipmap-xhdpi
-        convert original_logo.png -resize 96x96 app/src/main/res/mipmap-xhdpi/ic_launcher.png
-        convert original_logo.png -resize 96x96 app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png
-        convert original_logo.png -resize 96x96 -alpha set -background none -vignette 0x0 app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
-        
-        # 4. mipmap-xxhdpi (144x144 pixels) - 3x
-        mkdir -p app/src/main/res/mipmap-xxhdpi
-        convert original_logo.png -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-        convert original_logo.png -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png
-        convert original_logo.png -resize 144x144 -alpha set -background none -vignette 0x0 app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
-        
-        # 5. mipmap-xxxhdpi (192x192 pixels) - 4x
-        mkdir -p app/src/main/res/mipmap-xxxhdpi
-        convert original_logo.png -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-        convert original_logo.png -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png
-        convert original_logo.png -resize 192x192 -alpha set -background none -vignette 0x0 app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
-        
-        # 6. mipmap-anydpi (keep original size for vector/adaptive)
-        mkdir -p app/src/main/res/mipmap-anydpi
-        cp original_logo.png app/src/main/res/mipmap-anydpi/ic_launcher.png
-        cp original_logo.png app/src/main/res/mipmap-anydpi/ic_launcher_foreground.png
-        convert original_logo.png -alpha set -background none -vignette 0x0 app/src/main/res/mipmap-anydpi/ic_launcher_round.png
-        
-        # 7. mipmap-anydpi-v26 (adaptive icons for API 26+) - ONLY XML FILES
-        mkdir -p app/src/main/res/mipmap-anydpi-v26
-        
-        # Create adaptive icon XML files (no PNG files here!)
-        cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-          <background android:drawable="@drawable/ic_launcher_background" />
-          <foreground android:drawable="@mipmap/ic_launcher_foreground" />
-        </adaptive-icon>
-        EOF
-        
-        cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-          <background android:drawable="@drawable/ic_launcher_background" />
-          <foreground android:drawable="@mipmap/ic_launcher_foreground" />
-        </adaptive-icon>
-        EOF
-        
-        # Create a simple background drawable
-        mkdir -p app/src/main/res/drawable
-        cat > app/src/main/res/drawable/ic_launcher_background.xml << 'EOF'
-        <?xml version="1.0" encoding="utf-8"?>
-        <vector xmlns:android="http://schemas.android.com/apk/res/android"
-          android:width="108dp"
-          android:height="108dp"
-          android:viewportWidth="108"
-          android:viewportHeight="108">
-            <path
-              android:fillColor="#008577"
-              android:pathData="M0,0h108v108h-108z" />
-        </vector>
-        EOF
-        
-        # Verify the created icons
-        echo "Created icon structure:"
-        find app/src/main/res/mipmap-* -type f | sort
-        
-        echo ""
-        echo "Icon sizes:"
-        for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-          if [ -f "app/src/main/res/mipmap-$density/ic_launcher.png" ]; then
-            size=$(identify -format "%wx%h" "app/src/main/res/mipmap-$density/ic_launcher.png")
-            echo "  mipmap-$density: $size"
-          fi
+        find app/src/main/res -name "ic_launcher*.png" -o -name "ic_launcher*.jpg" -o -name "ic_launcher*.jpeg" -o -name "ic_launcher*.webp" 2>/dev/null | while read icon; do
+          echo "Updating: $icon"
+          dir=$(dirname "$icon")
+          
+          case "$dir" in
+            *mipmap-hdpi*)
+              convert downloaded_logo.png -resize 72x72 "$icon"
+              ;;
+            *mipmap-mdpi*)
+              convert downloaded_logo.png -resize 48x48 "$icon"
+              ;;
+            *mipmap-xhdpi*)
+              convert downloaded_logo.png -resize 96x96 "$icon"
+              ;;
+            *mipmap-xxhdpi*)
+              convert downloaded_logo.png -resize 144x144 "$icon"
+              ;;
+            *mipmap-xxxhdpi*)
+              convert downloaded_logo.png -resize 192x192 "$icon"
+              ;;
+            *)
+              convert downloaded_logo.png -resize 512x512 "$icon"
+              ;;
+          esac
         done
-        
-        echo "=== LOGO PROCESSING COMPLETE ==="
 
     # --------------------------------------------------
     # Create strings.xml
@@ -404,47 +326,46 @@ jobs:
         fi
 
     # --------------------------------------------------
-    # Clean up any backup files
+    # STEP 4: Clean up and verify
     # --------------------------------------------------
-    - name: Clean backup files
+    - name: Clean up and verify
       run: |
-        echo "Cleaning up backup files..."
-        find . -type f \( -name "*.backup" -o -name "*.bak" -o -name "*.back" -o -name "*~" \) -delete 2>/dev/null || true
-
-    # --------------------------------------------------
-    # Debug: Show what we've changed
-    # --------------------------------------------------
-    - name: Debug changes
-      run: |
-        echo "=== DEBUG: Checking critical files ==="
-        echo ""
-        echo "1. strings.xml:"
-        echo "---------------------------------"
-        cat app/src/main/res/values/strings.xml
-        echo "---------------------------------"
-        echo ""
-        echo "2. AndroidManifest.xml package and activity:"
-        echo "---------------------------------"
-        grep -E '(package=|android:name=)' app/src/main/AndroidManifest.xml 2>/dev/null || echo "Not found"
-        echo ""
-        echo "3. Gradle file applicationId/namespace:"
-        echo "---------------------------------"
-        if [ -f "app/build.gradle.kts" ]; then
-          echo "Using Kotlin DSL:"
-          grep -E "(namespace|applicationId)" app/build.gradle.kts 2>/dev/null || echo "Not found"
-        elif [ -f "app/build.gradle" ]; then
-          echo "Using Groovy DSL:"
-          grep -E "(namespace|applicationId)" app/build.gradle 2>/dev/null || echo "Not found"
+        echo "=== STEP 4: CLEANUP AND VERIFICATION ==="
+        
+        # Clean backup files
+        find . -type f \( -name "*.backup" -o -name "*.bak" -o -name "*.back" \) -delete 2>/dev/null || true
+        
+        # Verify MainActivity exists in new location
+        NEW_PACKAGE="${{ steps.config.outputs.PACKAGE_NAME }}"
+        NEW_PATH=$(echo "$NEW_PACKAGE" | tr '.' '/')
+        
+        echo "Checking MainActivity in new location..."
+        if [ -f "app/src/main/kotlin/$NEW_PATH/MainActivity.kt" ]; then
+          echo "✓ Found MainActivity.kt at: app/src/main/kotlin/$NEW_PATH/MainActivity.kt"
+          echo "Package in file:"
+          grep "^package" "app/src/main/kotlin/$NEW_PATH/MainActivity.kt"
+        elif [ -f "app/src/main/java/$NEW_PATH/MainActivity.java" ]; then
+          echo "✓ Found MainActivity.java at: app/src/main/java/$NEW_PATH/MainActivity.java"
+          echo "Package in file:"
+          grep "^package" "app/src/main/java/$NEW_PATH/MainActivity.java"
+        else
+          echo "✗ ERROR: MainActivity not found in new location!"
+          exit 1
         fi
+        
+        # Verify AndroidManifest.xml
         echo ""
-        echo "4. Directory structure:"
-        echo "---------------------------------"
-        find app/src/main/kotlin -type f -name "*.kt" 2>/dev/null | head -10 || echo "No Kotlin files found"
-        find app/src/main/java -type f -name "*.java" 2>/dev/null | head -10 || echo "No Java files found"
+        echo "AndroidManifest.xml activity:"
+        grep -i "activity" app/src/main/AndroidManifest.xml 2>/dev/null | grep -i "name" || echo "No activity found"
+        
+        # Verify Gradle files
         echo ""
-        echo "5. Icon directories created:"
-        echo "---------------------------------"
-        ls -la app/src/main/res/ | grep mipmap
+        echo "Gradle configuration:"
+        if [ -f "app/build.gradle.kts" ]; then
+          grep -E "(namespace|applicationId)" app/build.gradle.kts || echo "No namespace/applicationId found"
+        elif [ -f "app/build.gradle" ]; then
+          grep -E "(namespace|applicationId)" app/build.gradle || echo "No namespace/applicationId found"
+        fi
 
     # --------------------------------------------------
     # Build APK
@@ -464,9 +385,9 @@ jobs:
           chmod +x gradlew
         fi
         
-        # Build with stacktrace for debugging
+        # Build
         echo "Building release APK..."
-        ./gradlew clean assembleRelease --stacktrace
+        ./gradlew clean assembleRelease
         
         echo "Build completed."
         
@@ -474,11 +395,9 @@ jobs:
         APK_FILE=$(find app/build/outputs/apk -name "*release*.apk" -type f | head -1)
         if [ -f "$APK_FILE" ]; then
           echo "✓ APK generated: $APK_FILE"
-          echo "Size: $(ls -lh "$APK_FILE" | awk '{print $5}')"
+          ls -lh "$APK_FILE"
         else
           echo "✗ No APK found!"
-          echo "Searching for APK files..."
-          find . -name "*.apk" -type f
           exit 1
         fi
 
@@ -493,23 +412,11 @@ jobs:
         
         if [ -f "$APK_FILE" ]; then
           echo "APK: $APK_FILE"
-          echo "Size: $(ls -lh "$APK_FILE" | awk '{print $5}')"
-          
-          # Install aapt for verification
-          if ! command -v aapt &> /dev/null; then
-            sudo apt-get update && sudo apt-get install -y aapt
-          fi
           
           if command -v aapt &> /dev/null; then
-            echo ""
-            echo "APK Package Info:"
-            echo "-----------------"
+            echo "APK info:"
             aapt dump badging "$APK_FILE" | grep -E "(package|application-label|launchable-activity)" || true
-            echo "-----------------"
           fi
-        else
-          echo "✗ ERROR: No APK file found!"
-          exit 1
         fi
 
     # --------------------------------------------------
@@ -531,4 +438,3 @@ jobs:
         echo "📱 App Name: ${{ steps.config.outputs.APP_NAME }}"
         echo "📦 Package: ${{ steps.config.outputs.PACKAGE_NAME }}"
         echo "🌐 Website: ${{ steps.config.outputs.WEBSITE_URL }}"
-        echo "🎨 Icons created for all Android densities"
