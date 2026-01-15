@@ -27,7 +27,7 @@ jobs:
     # --------------------------------------------------
     # Set up JDK
     # --------------------------------------------------
-    - name: Set up JDK 17
+    - name: Set up JDLE 17
       uses: actions/setup-java@v4
       with:
         distribution: temurin
@@ -134,42 +134,120 @@ jobs:
         echo "RELEASE_KEY_PASSWORD=android123" >> gradle.properties
 
     # --------------------------------------------------
-    # Download and update app logo
+    # COMPLETE LOGO PROCESSING FOR ANDROID
     # --------------------------------------------------
-    - name: Download and update app logo
+    - name: Process App Logo for All Densities
       run: |
-        echo "Downloading logo from: ${{ steps.config.outputs.LOGO_URL }}"
+        echo "=== PROCESSING APP LOGO FOR ALL DENSITIES ==="
         
+        # Install required tools
+        echo "Installing required tools..."
         sudo apt-get update
-        sudo apt-get install -y imagemagick
+        sudo apt-get install -y imagemagick webp
         
-        wget -O downloaded_logo.png "${{ steps.config.outputs.LOGO_URL }}"
+        # Download logo
+        echo "Downloading logo from: ${{ steps.config.outputs.LOGO_URL }}"
+        wget -O original_logo.png "${{ steps.config.outputs.LOGO_URL }}"
         
-        find app/src/main/res -name "ic_launcher*.png" -o -name "ic_launcher*.jpg" -o -name "ic_launcher*.jpeg" -o -name "ic_launcher*.webp" 2>/dev/null | while read icon; do
-          echo "Updating: $icon"
-          dir=$(dirname "$icon")
-          
-          case "$dir" in
-            *mipmap-hdpi*)
-              convert downloaded_logo.png -resize 72x72 "$icon"
-              ;;
-            *mipmap-mdpi*)
-              convert downloaded_logo.png -resize 48x48 "$icon"
-              ;;
-            *mipmap-xhdpi*)
-              convert downloaded_logo.png -resize 96x96 "$icon"
-              ;;
-            *mipmap-xxhdpi*)
-              convert downloaded_logo.png -resize 144x144 "$icon"
-              ;;
-            *mipmap-xxxhdpi*)
-              convert downloaded_logo.png -resize 192x192 "$icon"
-              ;;
-            *)
-              convert downloaded_logo.png -resize 512x512 "$icon"
-              ;;
-          esac
+        # Verify logo is 512x512
+        echo "Verifying logo dimensions..."
+        dimensions=$(identify -format "%wx%h" original_logo.png)
+        if [ "$dimensions" != "512x512" ]; then
+          echo "Resizing logo to 512x512..."
+          convert original_logo.png -resize 512x512! resized_logo.png
+          mv resized_logo.png original_logo.png
+        fi
+        
+        # Create temporary directory for new icons
+        TEMP_DIR="/tmp/android_icons"
+        rm -rf "$TEMP_DIR"
+        mkdir -p "$TEMP_DIR"
+        
+        # Define sizes for each density (in dp, converted to pixels for xxxhdpi)
+        # Android uses: mdpi=1x, hdpi=1.5x, xhdpi=2x, xxhdpi=3x, xxxhdpi=4x
+        # Launcher icons: 48dp, 72dp, 96dp, 144dp, 192dp
+        
+        echo "Creating icons for all densities..."
+        
+        # 1. mipmap-mdpi (48x48 pixels) - 1x
+        mkdir -p "$TEMP_DIR/mipmap-mdpi"
+        convert original_logo.png -resize 48x48 "$TEMP_DIR/mipmap-mdpi/ic_launcher.webp"
+        convert original_logo.png -resize 48x48 "$TEMP_DIR/mipmap-mdpi/ic_launcher_foreground.webp"
+        convert original_logo.png -resize 48x48 -alpha set -background none -vignette 0x0 "$TEMP_DIR/mipmap-mdpi/ic_launcher_round.webp"
+        
+        # 2. mipmap-hdpi (72x72 pixels) - 1.5x
+        mkdir -p "$TEMP_DIR/mipmap-hdpi"
+        convert original_logo.png -resize 72x72 "$TEMP_DIR/mipmap-hdpi/ic_launcher.webp"
+        convert original_logo.png -resize 72x72 "$TEMP_DIR/mipmap-hdpi/ic_launcher_foreground.webp"
+        convert original_logo.png -resize 72x72 -alpha set -background none -vignette 0x0 "$TEMP_DIR/mipmap-hdpi/ic_launcher_round.webp"
+        
+        # 3. mipmap-xhdpi (96x96 pixels) - 2x
+        mkdir -p "$TEMP_DIR/mipmap-xhdpi"
+        convert original_logo.png -resize 96x96 "$TEMP_DIR/mipmap-xhdpi/ic_launcher.webp"
+        convert original_logo.png -resize 96x96 "$TEMP_DIR/mipmap-xhdpi/ic_launcher_foreground.webp"
+        convert original_logo.png -resize 96x96 -alpha set -background none -vignette 0x0 "$TEMP_DIR/mipmap-xhdpi/ic_launcher_round.webp"
+        
+        # 4. mipmap-xxhdpi (144x144 pixels) - 3x
+        mkdir -p "$TEMP_DIR/mipmap-xxhdpi"
+        convert original_logo.png -resize 144x144 "$TEMP_DIR/mipmap-xxhdpi/ic_launcher.webp"
+        convert original_logo.png -resize 144x144 "$TEMP_DIR/mipmap-xxhdpi/ic_launcher_foreground.webp"
+        convert original_logo.png -resize 144x144 -alpha set -background none -vignette 0x0 "$TEMP_DIR/mipmap-xxhdpi/ic_launcher_round.webp"
+        
+        # 5. mipmap-xxxhdpi (192x192 pixels) - 4x
+        mkdir -p "$TEMP_DIR/mipmap-xxxhdpi"
+        convert original_logo.png -resize 192x192 "$TEMP_DIR/mipmap-xxxhdpi/ic_launcher.webp"
+        convert original_logo.png -resize 192x192 "$TEMP_DIR/mipmap-xxxhdpi/ic_launcher_foreground.webp"
+        convert original_logo.png -resize 192x192 -alpha set -background none -vignette 0x0 "$TEMP_DIR/mipmap-xxxhdpi/ic_launcher_round.webp"
+        
+        # 6. mipmap-anydpi (adaptive icons - keep original size)
+        mkdir -p "$TEMP_DIR/mipmap-anydpi"
+        cp original_logo.png "$TEMP_DIR/mipmap-anydpi/ic_launcher.webp"
+        cp original_logo.png "$TEMP_DIR/mipmap-anydpi/ic_launcher_foreground.webp"
+        convert original_logo.png -alpha set -background none -vignette 0x0 "$TEMP_DIR/mipmap-anydpi/ic_launcher_round.webp"
+        
+        # 7. mipmap-anydpi-v26 (adaptive icons for API 26+)
+        mkdir -p "$TEMP_DIR/mipmap-anydpi-v26"
+        cp original_logo.png "$TEMP_DIR/mipmap-anydpi-v26/ic_launcher.webp"
+        cp original_logo.png "$TEMP_DIR/mipmap-anydpi-v26/ic_launcher_foreground.webp"
+        convert original_logo.png -alpha set -background none -vignette 0x0 "$TEMP_DIR/mipmap-anydpi-v26/ic_launcher_round.webp"
+        
+        # Also create PNG versions for compatibility
+        echo "Creating PNG versions for compatibility..."
+        for density in mdpi hdpi xhdpi xxhdpi xxxhdpi anydpi "anydpi-v26"; do
+          if [ -d "$TEMP_DIR/mipmap-$density" ]; then
+            # Convert webp to png
+            for icon in ic_launcher ic_launcher_foreground ic_launcher_round; do
+              webp_file="$TEMP_DIR/mipmap-$density/$icon.webp"
+              png_file="$TEMP_DIR/mipmap-$density/$icon.png"
+              if [ -f "$webp_file" ]; then
+                convert "$webp_file" "$png_file"
+              fi
+            done
+          fi
         done
+        
+        # Replace old mipmap folders in the project
+        echo "Replacing old mipmap folders..."
+        
+        # Remove existing mipmap folders
+        rm -rf app/src/main/res/mipmap-*
+        
+        # Copy new mipmap folders
+        cp -r "$TEMP_DIR"/* app/src/main/res/
+        
+        # Verify the created icons
+        echo "Created icon structure:"
+        find app/src/main/res/mipmap-* -type f -name "*.webp" -o -name "*.png" | sort
+        
+        echo "Icon sizes:"
+        for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+          if [ -f "app/src/main/res/mipmap-$density/ic_launcher.webp" ]; then
+            size=$(identify -format "%wx%h" "app/src/main/res/mipmap-$density/ic_launcher.webp")
+            echo "  mipmap-$density: $size"
+          fi
+        done
+        
+        echo "=== LOGO PROCESSING COMPLETE ==="
 
     # --------------------------------------------------
     # Create strings.xml
@@ -264,6 +342,31 @@ jobs:
         echo "✓ MainActivity moved successfully"
 
     # --------------------------------------------------
+    # STEP 2: Update AndroidManifest.xml activity reference ONLY
+    # --------------------------------------------------
+    - name: Update AndroidManifest.xml activity reference
+      run: |
+        echo "=== STEP 2: UPDATING AndroidManifest.xml ==="
+        
+        OLD_PACKAGE="${{ steps.find_package.outputs.ORIGINAL_PACKAGE }}"
+        NEW_PACKAGE="${{ steps.config.outputs.PACKAGE_NAME }}"
+        
+        if [ -f "app/src/main/AndroidManifest.xml" ]; then
+          echo "Updating activity reference from .$OLD_PACKAGE.MainActivity to .$NEW_PACKAGE.MainActivity"
+          
+          # Update activity name but keep the package attribute as is
+          sed -i "s|android:name=\"\\.$OLD_PACKAGE\\.MainActivity\"|android:name=\"\\.$NEW_PACKAGE\\.MainActivity\"|g" app/src/main/AndroidManifest.xml
+          sed -i "s|android:name=\"$OLD_PACKAGE\\.MainActivity\"|android:name=\"$NEW_PACKAGE\\.MainActivity\"|g" app/src/main/AndroidManifest.xml
+          sed -i "s|android:name=\"\\.MainActivity\"|android:name=\"\\.$NEW_PACKAGE\\.MainActivity\"|g" app/src/main/AndroidManifest.xml
+          
+          echo "✓ AndroidManifest.xml updated (activity reference only)"
+          echo "Current manifest activity:"
+          grep -i "activity" app/src/main/AndroidManifest.xml | grep -i "name"
+        else
+          echo "AndroidManifest.xml not found"
+        fi
+
+    # --------------------------------------------------
     # STEP 3: Update Gradle files (namespace and applicationId)
     # --------------------------------------------------
     - name: Update Gradle files
@@ -301,11 +404,56 @@ jobs:
         fi
 
     # --------------------------------------------------
-    # STEP 4: Clean up and verify
+    # STEP 4: Create adaptive icon XML files
+    # --------------------------------------------------
+    - name: Create Adaptive Icon XML Files
+      run: |
+        echo "=== CREATING ADAPTIVE ICON XML FILES ==="
+        
+        # Create mipmap-anydpi-v26/ic_launcher.xml for adaptive icons
+        mkdir -p app/src/main/res/mipmap-anydpi-v26
+        
+        cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+          <background android:drawable="@drawable/ic_launcher_background" />
+          <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+        </adaptive-icon>
+        EOF
+        
+        cat > app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+          <background android:drawable="@drawable/ic_launcher_background" />
+          <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+        </adaptive-icon>
+        EOF
+        
+        # Create a simple background drawable if it doesn't exist
+        mkdir -p app/src/main/res/drawable
+        if [ ! -f "app/src/main/res/drawable/ic_launcher_background.xml" ]; then
+          cat > app/src/main/res/drawable/ic_launcher_background.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <vector xmlns:android="http://schemas.android.com/apk/res/android"
+          android:width="108dp"
+          android:height="108dp"
+          android:viewportWidth="108"
+          android:viewportHeight="108">
+            <path
+              android:fillColor="#008577"
+              android:pathData="M0,0h108v108h-108z" />
+        </vector>
+        EOF
+        fi
+        
+        echo "✓ Adaptive icon XML files created"
+
+    # --------------------------------------------------
+    # STEP 5: Clean up and verify
     # --------------------------------------------------
     - name: Clean up and verify
       run: |
-        echo "=== STEP 4: CLEANUP AND VERIFICATION ==="
+        echo "=== STEP 5: CLEANUP AND VERIFICATION ==="
         
         # Clean backup files
         find . -type f \( -name "*.backup" -o -name "*.bak" -o -name "*.back" \) -delete 2>/dev/null || true
@@ -314,7 +462,7 @@ jobs:
         NEW_PACKAGE="${{ steps.config.outputs.PACKAGE_NAME }}"
         NEW_PATH=$(echo "$NEW_PACKAGE" | tr '.' '/')
         
-        echo "Checking MainActivity in new location..."
+        echo "1. Checking MainActivity in new location..."
         if [ -f "app/src/main/kotlin/$NEW_PATH/MainActivity.kt" ]; then
           echo "✓ Found MainActivity.kt at: app/src/main/kotlin/$NEW_PATH/MainActivity.kt"
           echo "Package in file:"
@@ -330,17 +478,32 @@ jobs:
         
         # Verify AndroidManifest.xml
         echo ""
-        echo "AndroidManifest.xml activity:"
+        echo "2. AndroidManifest.xml activity:"
         grep -i "activity" app/src/main/AndroidManifest.xml 2>/dev/null | grep -i "name" || echo "No activity found"
         
         # Verify Gradle files
         echo ""
-        echo "Gradle configuration:"
+        echo "3. Gradle configuration:"
         if [ -f "app/build.gradle.kts" ]; then
           grep -E "(namespace|applicationId)" app/build.gradle.kts || echo "No namespace/applicationId found"
         elif [ -f "app/build.gradle" ]; then
           grep -E "(namespace|applicationId)" app/build.gradle || echo "No namespace/applicationId found"
         fi
+        
+        # Verify icons were created
+        echo ""
+        echo "4. Icon structure verification:"
+        echo "Created mipmap directories:"
+        ls -la app/src/main/res/ | grep mipmap
+        
+        echo ""
+        echo "Icon files in each directory:"
+        for dir in app/src/main/res/mipmap-*; do
+          if [ -d "$dir" ]; then
+            echo "  $(basename "$dir"):"
+            ls "$dir" | head -5
+          fi
+        done
 
     # --------------------------------------------------
     # Build APK
@@ -413,3 +576,4 @@ jobs:
         echo "📱 App Name: ${{ steps.config.outputs.APP_NAME }}"
         echo "📦 Package: ${{ steps.config.outputs.PACKAGE_NAME }}"
         echo "🌐 Website: ${{ steps.config.outputs.WEBSITE_URL }}"
+        echo "🎨 Icons created for all Android densities"
