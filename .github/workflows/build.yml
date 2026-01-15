@@ -4,87 +4,159 @@ on:
   workflow_dispatch:
     inputs:
       build_id:
-        description: 'Build ID'
+        description: 'Build ID from database'
         required: true
+        type: string
       website_url:
-        description: 'Website URL'
+        description: 'Website URL for WebView'
         required: true
+        type: string
       app_name:
-        description: 'App Name'
+        description: 'App name'
         required: true
+        type: string
       package_name:
-        description: 'Package Name'
+        description: 'Android package name'
         required: true
+        type: string
       logo_url:
         description: 'Logo URL'
-        required: true
+        required: false
+        type: string
+
+env:
+  BUILD_ID: ${{ github.event.inputs.build_id }}
+  WEBSITE_URL: ${{ github.event.inputs.website_url }}
+  APP_NAME: ${{ github.event.inputs.app_name }}
+  PACKAGE_NAME: ${{ github.event.inputs.package_name }}
+  LOGO_URL: ${{ github.event.inputs.logo_url }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
     
     steps:
+    - name: Log inputs
+      run: |
+        echo "=== Build Parameters ==="
+        echo "Build ID: $BUILD_ID"
+        echo "Website URL: $WEBSITE_URL"
+        echo "App Name: $APP_NAME"
+        echo "Package Name: $PACKAGE_NAME"
+        echo "Logo URL: $LOGO_URL"
+        echo "========================="
+    
+    - name: Notify build started
+      run: |
+        curl -X POST "https://savist.online/update_build_status.php" \
+          -H "Content-Type: application/json" \
+          -d "{\"build_id\":\"$BUILD_ID\",\"status\":\"processing\",\"run_id\":\"$GITHUB_RUN_ID\"}"
+      continue-on-error: true
+    
     - name: Checkout repository
       uses: actions/checkout@v3
-      
-    - name: Set up JDK 11
+      with:
+        ref: ${{ github.ref }}
+    
+    - name: Setup Java JDK
       uses: actions/setup-java@v3
       with:
         java-version: '11'
         distribution: 'temurin'
-        
-    - name: Download and replace logo
+    
+    - name: Download logo if provided
+      if: env.LOGO_URL != ''
       run: |
-        curl -o app/src/main/res/mipmap-xxxhdpi/ic_launcher.png ${{ github.event.inputs.logo_url }}
-        curl -o app/src/main/res/mipmap-xxhdpi/ic_launcher.png ${{ github.event.inputs.logo_url }}
-        curl -o app/src/main/res/mipmap-xhdpi/ic_launcher.png ${{ github.event.inputs.logo_url }}
-        curl -o app/src/main/res/mipmap-hdpi/ic_launcher.png ${{ github.event.inputs.logo_url }}
-        curl -o app/src/main/res/mipmap-mdpi/ic_launcher.png ${{ github.event.inputs.logo_url }}
-        
-    - name: Update strings.xml
+        echo "Downloading logo from: $LOGO_URL"
+        curl -L -o app/src/main/res/drawable/app_logo.png "$LOGO_URL"
+    
+    - name: Update app configuration
       run: |
-        # Update app name
-        sed -i "s/<string name=\"app_name\">.*<\/string>/<string name=\"app_name\">${{ github.event.inputs.app_name }}<\/string>/g" app/src/main/res/values/strings.xml
+        echo "=== Updating app configuration ==="
         
-        # Update website URL
-        sed -i "s/<string name=\"website_url\">.*<\/string>/<string name=\"website_url\">${{ github.event.inputs.website_url }}<\/string>/g" app/src/main/res/values/strings.xml
+        # Update app name in strings.xml
+        if [ -f "app/src/main/res/values/strings.xml" ]; then
+          echo "Updating strings.xml..."
+          sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">$APP_NAME</string>|g" app/src/main/res/values/strings.xml
+          sed -i "s|<string name=\"website_url\">.*</string>|<string name=\"website_url\">$WEBSITE_URL</string>|g" app/src/main/res/values/strings.xml
+        else
+          echo "Creating strings.xml..."
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/strings.xml << EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+          <string name="app_name">$APP_NAME</string>
+          <string name="website_url">$WEBSITE_URL</string>
+          </resources>
+        EOF
+        fi
         
-    - name: Update package name
-      uses: BetterQA/github-action-rename-package@v1
-      with:
-        current-package-name: 'com.example.app'
-        new-package-name: '${{ github.event.inputs.package_name }}'
+        # Update package name in build.gradle
+        if [ -f "app/build.gradle" ]; then
+          echo "Updating build.gradle package name..."
+          sed -i "s|applicationId \".*\"|applicationId \"$PACKAGE_NAME\"|g" app/build.gradle
+        fi
         
+        # Update package name in AndroidManifest.xml
+        if [ -f "app/src/main/AndroidManifest.xml" ]; then
+          echo "Updating AndroidManifest.xml package..."
+          sed -i "s|package=\".*\"|package=\"$PACKAGE_NAME\"|g" app/src/main/AndroidManifest.xml
+        fi
+        
+        echo "Configuration updated successfully"
+    
     - name: Setup Android SDK
-      uses: android-actions/setup-android@v2
-      
+      uses: android-actions/setup-android@v3
+    
     - name: Build APK
       run: |
+        echo "=== Building APK ==="
         chmod +x gradlew
-        ./gradlew assembleRelease
-        
-    - name: Sign APK
-      env:
-        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        ./gradlew assembleDebug
+        echo "APK built successfully"
+    
+    - name: Find APK file
+      id: find-apk
       run: |
-        # Use jarsigner or apksigner to sign the APK
-        # Assuming you have your keystore.jks in the repository
-        jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
-          -keystore keystore.jks \
-          -storepass $KEYSTORE_PASSWORD \
-          -keypass $KEY_PASSWORD \
-          app/build/outputs/apk/release/app-release-unsigned.apk \
-          key-alias
-        
+        APK_PATH=$(find app/build/outputs/apk -name "*.apk" -type f | head -1)
+        if [ -z "$APK_PATH" ]; then
+          echo "APK not found!"
+          exit 1
+        fi
+        echo "APK found at: $APK_PATH"
+        echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
+    
     - name: Upload APK as artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
-        name: app-release
-        path: app/build/outputs/apk/release/*.apk
-        
-    - name: Notify completion via webhook
+        name: android-app-${{ env.BUILD_ID }}
+        path: ${{ steps.find-apk.outputs.apk_path }}
+    
+    - name: Create download URL
+      id: create-url
       run: |
-        curl -X POST https://savist.online/update_build_status.php \
+        # Create a mock download URL (in real scenario, upload to server)
+        DOWNLOAD_URL="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        echo "download_url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
+        echo "GitHub Run URL: $DOWNLOAD_URL"
+    
+    - name: Notify build completed
+      run: |
+        DOWNLOAD_URL="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        echo "Notifying completion with download URL: $DOWNLOAD_URL"
+        
+        curl -X POST "https://savist.online/update_build_status.php" \
           -H "Content-Type: application/json" \
-          -d "{\"build_id\":\"${{ github.event.inputs.build_id }}\",\"status\":\"completed\",\"run_id\":\"${{ github.run_id }}\"}"
+          -d "{\"build_id\":\"$BUILD_ID\",\"status\":\"completed\",\"run_id\":\"$GITHUB_RUN_ID\",\"apk_url\":\"$DOWNLOAD_URL\"}"
+      continue-on-error: true
+    
+    - name: Build Summary
+      if: always()
+      run: |
+        echo "=== Build Summary ==="
+        echo "Build ID: $BUILD_ID"
+        echo "App Name: $APP_NAME"
+        echo "Package: $PACKAGE_NAME"
+        echo "Website: $WEBSITE_URL"
+        echo "GitHub Run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        echo "====================="
