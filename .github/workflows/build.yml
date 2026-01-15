@@ -342,7 +342,7 @@ EOF
     
     - name: Upload APK as artifact
       if: steps.find-apk.outputs.apk_path != 'none'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: android-app-${{ env.BUILD_ID }}
         path: ${{ steps.find-apk.outputs.apk_path }}
@@ -361,7 +361,7 @@ EOF
     
     - name: Upload simulated APK
       if: steps.find-apk.outputs.apk_path == 'none'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
         name: android-app-${{ env.BUILD_ID }}-simulated
         path: simulated_build/app-debug.apk
