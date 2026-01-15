@@ -1,105 +1,124 @@
-name: Build WebView APK
+name: Android App Builder (Signed APK)
 
 on:
-  repository_dispatch:
-    types: [build_apk]
+  workflow_dispatch:
+    inputs:
+      build_url:
+        description: 'URL to build.json'
+        required: true
+        default: 'https://savist.online/build.json'
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout repo
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    # --------------------------------------------------
+    # Checkout
+    # --------------------------------------------------
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      # 2️⃣ Setup Java & Android
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
+    # --------------------------------------------------
+    # Java 17
+    # --------------------------------------------------
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+    # --------------------------------------------------
+    # Download build.json
+    # --------------------------------------------------
+    - name: Download build.json
+      run: |
+        wget -O build.json "${{ github.event.inputs.build_url }}"
+        cat build.json
 
-      # 3️⃣ Install jq to parse JSON
-      - name: Install jq
-        run: sudo apt-get install -y jq
+    # --------------------------------------------------
+    # Parse JSON
+    # --------------------------------------------------
+    - name: Parse build configuration
+      id: config
+      run: |
+        echo "website_url=$(jq -r '.website_url' build.json)" >> $GITHUB_OUTPUT
+        echo "app_name=$(jq -r '.app_name' build.json)" >> $GITHUB_OUTPUT
+        echo "package_name=$(jq -r '.package_name' build.json)" >> $GITHUB_OUTPUT
+        echo "logo_url=$(jq -r '.logo_url' build.json)" >> $GITHUB_OUTPUT
+        echo "user_id=$(jq -r '.user_id' build.json)" >> $GITHUB_OUTPUT
 
-      # 4️⃣ Download build config from savist.online
-      - name: Download build.json
-        run: |
-          mkdir -p config
-          curl -fSL https://savist.online/builder/data/build.json -o config/build.json
-          cat config/build.json
+    # --------------------------------------------------
+    # Android SDK
+    # --------------------------------------------------
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
 
-      # 5️⃣ Parse JSON and export variables
-      - name: Parse build config
-        id: parse
-        run: |
-          APP_NAME=$(jq -r '.app_name' config/build.json)
-          PKG=$(jq -r '.package_name' config/build.json)
-          URL=$(jq -r '.website_url' config/build.json)
+    # --------------------------------------------------
+    # Create Keystore BEFORE build
+    # --------------------------------------------------
+    - name: Create release keystore
+      run: |
+        keytool -genkeypair \
+          -keystore release.jks \
+          -alias release \
+          -keyalg RSA \
+          -keysize 2048 \
+          -validity 10000 \
+          -storepass android \
+          -keypass android \
+          -dname "CN=Jawad, OU=Android, O=Savist, L=Bahawalpur, S=Punjab, C=PK"
 
-          if [ -z "$APP_NAME" ] || [ -z "$PKG" ] || [ -z "$URL" ]; then
-            echo "ERROR: One of the required fields (app_name, package_name, website_url) is missing!"
-            exit 1
-          fi
+    # --------------------------------------------------
+    # Inject signing config via gradle.properties
+    # --------------------------------------------------
+    - name: Configure signing
+      run: |
+        echo "RELEASE_STORE_FILE=$(pwd)/release.jks" >> gradle.properties
+        echo "RELEASE_STORE_PASSWORD=android" >> gradle.properties
+        echo "RELEASE_KEY_ALIAS=release" >> gradle.properties
+        echo "RELEASE_KEY_PASSWORD=android" >> gradle.properties
 
-          echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
-          echo "PKG=$PKG" >> $GITHUB_ENV
-          echo "URL=$URL" >> $GITHUB_ENV
+    # --------------------------------------------------
+    # Download App Logo
+    # --------------------------------------------------
+    - name: Download app logo
+      run: |
+        mkdir -p app/src/main/res/drawable
+        wget -O app/src/main/res/drawable/app_logo.png "${{ steps.config.outputs.logo_url }}"
 
-      # 6️⃣ Update Gradle & strings
-      - name: Update app config
-        run: |
-          echo "Updating app package and strings..."
-          sed -i "s/applicationId \".*\"/applicationId \"$PKG\"/" app/build.gradle.kts
-          sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">$APP_NAME</string>|" app/src/main/res/values/strings.xml
-          sed -i "s|<string name=\"website_url\">.*</string>|<string name=\"website_url\">$URL</string>|" app/src/main/res/values/strings.xml
+    # --------------------------------------------------
+    # Update strings.xml
+    # --------------------------------------------------
+    - name: Update strings
+      run: |
+        sed -i "s|My App|${{ steps.config.outputs.app_name }}|g" app/src/main/res/values/strings.xml
+        sed -i "s|https://example.com|${{ steps.config.outputs.website_url }}|g" app/src/main/res/values/strings.xml
 
-      # 7️⃣ Generate unique keystore
-      - name: Generate keystore
-        run: |
-          KEYSTORE_FILE="keystore_$PKG.jks"
-          echo "Generating keystore for $APP_NAME / $PKG"
-          keytool -genkeypair \
-            -keystore "$KEYSTORE_FILE" \
-            -storepass android \
-            -keypass android \
-            -alias "$PKG" \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=$APP_NAME"
-          echo "Generated keystore: $KEYSTORE_FILE"
+    # --------------------------------------------------
+    # Update package name
+    # --------------------------------------------------
+    - name: Update package name
+      run: |
+        OLD_PACKAGE="com.yourapp.app"
+        NEW_PACKAGE="${{ steps.config.outputs.package_name }}"
 
-      # 8️⃣ Build release APK
-      - name: Build APK
-        run: |
-          ./gradlew assembleRelease
+        find . -type f \( -name "*.java" -o -name "*.kt" -o -name "*.xml" -o -name "*.gradle" \) \
+          -exec sed -i "s/$OLD_PACKAGE/$NEW_PACKAGE/g" {} +
 
-          # Automatically find APK file
-          APK_FILE=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
-          if [ -z "$APK_FILE" ]; then
-            echo "ERROR: APK not found!"
-            exit 1
-          fi
+    # --------------------------------------------------
+    # Build SIGNED Release APK
+    # --------------------------------------------------
+    - name: Build Signed Release APK
+      run: |
+        chmod +x gradlew
+        ./gradlew assembleRelease
 
-          mv "$APK_FILE" "app_$PKG.apk"
-          echo "APK built: app_$PKG.apk"
-
-      # 9️⃣ Upload APK as artifact
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: "app_$PKG"
-          path: "app_$PKG.apk"
-
-      # 🔟 Upload keystore as artifact
-      - name: Upload keystore
-        uses: actions/upload-artifact@v4
-        with:
-          name: "keystore_$PKG"
-          path: "keystore_$PKG.jks"
+    # --------------------------------------------------
+    # Upload APK
+    # --------------------------------------------------
+    - name: Upload Signed APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: Signed-${{ steps.config.outputs.app_name }}-${{ steps.config.outputs.user_id }}
+        path: app/build/outputs/apk/release/*.apk
