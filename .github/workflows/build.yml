@@ -1,12 +1,7 @@
-name: Android App Builder
+name: Android App Builder (Signed APK)
 
 on:
   workflow_dispatch:
-    inputs:
-      build_url:
-        description: 'URL to build.json'
-        required: true
-        default: 'https://savist.online/build.json'
 
 jobs:
   build:
@@ -16,69 +11,96 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # ✅ FIX: Use Java 17 (Required by Android SDK)
+    # ✅ Java 17
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
         java-version: '17'
 
-    - name: Download build configuration
+    # ✅ Download build.json
+    - name: Download build.json
       run: |
-        wget -O build_config.json ${{ github.event.inputs.build_url }}
-        echo "Build config downloaded"
+        wget -O build.json https://savist.online/build.json
+        cat build.json
 
-    - name: Parse build configuration
+    # ✅ Parse JSON
+    - name: Parse config
       id: config
       run: |
-        BUILD_CONFIG=$(cat build_config.json)
-        echo "website_url=$(echo $BUILD_CONFIG | jq -r '.website_url')" >> $GITHUB_OUTPUT
-        echo "app_name=$(echo $BUILD_CONFIG | jq -r '.app_name')" >> $GITHUB_OUTPUT
-        echo "package_name=$(echo $BUILD_CONFIG | jq -r '.package_name')" >> $GITHUB_OUTPUT
-        echo "logo_url=$(echo $BUILD_CONFIG | jq -r '.logo_url')" >> $GITHUB_OUTPUT
+        echo "website_url=$(jq -r '.website_url' build.json)" >> $GITHUB_OUTPUT
+        echo "app_name=$(jq -r '.app_name' build.json)" >> $GITHUB_OUTPUT
+        echo "package_name=$(jq -r '.package_name' build.json)" >> $GITHUB_OUTPUT
+        echo "logo_url=$(jq -r '.logo_url' build.json)" >> $GITHUB_OUTPUT
+        echo "user_id=$(jq -r '.user_id' build.json)" >> $GITHUB_OUTPUT
 
-    - name: Download app logo
+    # ✅ Download Logo
+    - name: Download App Logo
       run: |
         mkdir -p app/src/main/res/drawable
-        wget -O app/src/main/res/drawable/app_logo.png ${{ steps.config.outputs.logo_url }}
+        wget -O app/src/main/res/drawable/app_logo.png "${{ steps.config.outputs.logo_url }}"
 
-    # ✅ Android SDK now works with Java 17
+    # ✅ Android SDK
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
 
-    - name: Replace strings in XML files
+    # ✅ Update strings
+    - name: Update strings.xml
       run: |
-        sed -i "s/My App/${{ steps.config.outputs.app_name }}/g" app/src/main/res/values/strings.xml
+        sed -i "s|My App|${{ steps.config.outputs.app_name }}|g" app/src/main/res/values/strings.xml
         sed -i "s|https://example.com|${{ steps.config.outputs.website_url }}|g" app/src/main/res/values/strings.xml
 
-        find . -type f \( -name "*.java" -o -name "*.xml" -o -name "*.gradle" \) \
-          -exec sed -i "s/com\.yourapp\.app/${{ steps.config.outputs.package_name }}/g" {} +
-
-    - name: Update build.gradle
+    # ✅ Update package name
+    - name: Update package name
       run: |
-        sed -i "s/applicationId \"com\.yourapp\.app\"/applicationId \"${{ steps.config.outputs.package_name }}\"/g" app/build.gradle
+        OLD_PACKAGE="com.yourapp.app"
+        NEW_PACKAGE="${{ steps.config.outputs.package_name }}"
 
+        find . -type f \( -name "*.java" -o -name "*.kt" -o -name "*.xml" -o -name "*.gradle" \) \
+          -exec sed -i "s/$OLD_PACKAGE/$NEW_PACKAGE/g" {} +
+
+    # ✅ Build Release APK
     - name: Build APK
       run: |
         chmod +x gradlew
         ./gradlew assembleRelease
 
+    # 🔐 Create Keystore
+    - name: Create Keystore
+      run: |
+        keytool -genkeypair -v \
+          -keystore release.jks \
+          -alias release \
+          -keyalg RSA \
+          -keysize 2048 \
+          -validity 10000 \
+          -storepass android \
+          -keypass android \
+          -dname "CN=Jawad, OU=Android, O=Savist, L=Pakistan, S=Punjab, C=PK"
+
+    # 🔐 Sign APK (OFFICIAL WAY)
     - name: Sign APK
       run: |
-        keytool -genkey -v -keystore my-release-key.jks \
-          -keyalg RSA -keysize 2048 -validity 10000 \
-          -alias my-alias \
-          -storepass password123 -keypass password123 \
-          -dname "CN=App Builder, OU=Mobile, O=Company, L=City, S=State, C=US"
+        APK_PATH=app/build/outputs/apk/release/app-release-unsigned.apk
+        SIGNED_APK=app/build/outputs/apk/release/${{ steps.config.outputs.app_name }}-signed.apk
 
-        jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
-          -keystore my-release-key.jks \
-          app/build/outputs/apk/release/app-release-unsigned.apk \
-          my-alias \
-          -storepass password123 -keypass password123
+        $ANDROID_SDK_ROOT/build-tools/*/apksigner sign \
+          --ks release.jks \
+          --ks-key-alias release \
+          --ks-pass pass:android \
+          --key-pass pass:android \
+          --out $SIGNED_APK \
+          $APK_PATH
 
-    - name: Upload APK artifact
+    # ✅ Verify Signature
+    - name: Verify APK
+      run: |
+        $ANDROID_SDK_ROOT/build-tools/*/apksigner verify \
+          app/build/outputs/apk/release/${{ steps.config.outputs.app_name }}-signed.apk
+
+    # 📦 Upload SIGNED APK
+    - name: Upload Signed APK
       uses: actions/upload-artifact@v4
       with:
-        name: signed-app
-        path: app/build/outputs/apk/release/app-release-unsigned.apk
+        name: Signed-${{ steps.config.outputs.app_name }}-${{ steps.config.outputs.user_id }}
+        path: app/build/outputs/apk/release/*-signed.apk
