@@ -181,7 +181,7 @@ jobs:
         done
 
     # --------------------------------------------------
-    # Update strings.xml (FIXED - safe variable handling)
+    # Update strings.xml
     # --------------------------------------------------
     - name: Update strings.xml
       run: |
@@ -208,154 +208,211 @@ jobs:
         
         echo "Created strings.xml:"
         cat app/src/main/res/values/strings.xml
-        
-        # Clean up any backup files
-        find app/src/main/res -name "*.backup" -o -name "*.bak" -o -name "*.back" -delete 2>/dev/null || true
 
     # --------------------------------------------------
-    # Update package name in all files (CAREFULLY)
+    # COMPLETE PACKAGE RENAME - Step by Step
     # --------------------------------------------------
-    - name: Update package name
+    - name: Complete Package Rename
       run: |
-        echo "Updating package name..."
+        echo "=== COMPLETE PACKAGE RENAME PROCESS ==="
         OLD_PACKAGE="${{ steps.find_package.outputs.ORIGINAL_PACKAGE }}"
         NEW_PACKAGE="${{ steps.config.outputs.PACKAGE_NAME }}"
         
-        echo "From: $OLD_PACKAGE"
-        echo "To: $NEW_PACKAGE"
+        echo "Changing from: $OLD_PACKAGE"
+        echo "Changing to: $NEW_PACKAGE"
         
-        # Clean up any backup files first
-        find . -name "*.backup" -o -name "*.bak" -delete 2>/dev/null || true
-        
-        # 1. Update AndroidManifest.xml
-        if [ -f "app/src/main/AndroidManifest.xml" ]; then
-          echo "Updating AndroidManifest.xml..."
-          # Only update the package attribute
-          sed -i "s|package=\"$OLD_PACKAGE\"|package=\"$NEW_PACKAGE\"|g" app/src/main/AndroidManifest.xml
-        fi
-        
-        # 2. Update build.gradle
-        if [ -f "app/build.gradle" ]; then
-          echo "Updating build.gradle..."
-          
-          # Update namespace carefully
-          sed -i "s|namespace ['\"]$OLD_PACKAGE['\"]|namespace \"$NEW_PACKAGE\"|gI" app/build.gradle
-          
-          # Update applicationId carefully
-          sed -i "s|applicationId ['\"]$OLD_PACKAGE['\"]|applicationId \"$NEW_PACKAGE\"|gI" app/build.gradle
-        fi
-        
-        # 3. Update source files (Java/Kotlin)
-        echo "Updating source files..."
-        
-        # Process Java files
-        find app/src/main/java -name "*.java" 2>/dev/null | while read file; do
-          echo "  Updating Java: $file"
-          # Only update package declaration and imports
-          sed -i "s|^package $OLD_PACKAGE;|package $NEW_PACKAGE;|g" "$file"
-          sed -i "s|import $OLD_PACKAGE\\.|import $NEW_PACKAGE\\.|g" "$file"
-        done
-        
-        # Process Kotlin files
-        find app/src/main/kotlin -name "*.kt" 2>/dev/null | while read file; do
-          echo "  Updating Kotlin: $file"
-          sed -i "s|^package $OLD_PACKAGE|package $NEW_PACKAGE|g" "$file"
-          sed -i "s|import $OLD_PACKAGE\\.|import $NEW_PACKAGE\\.|g" "$file"
-        done
-        
-        # 4. Move source files to new package structure
-        echo "Moving source files..."
-        
+        # Convert package names to directory paths
         OLD_PATH=$(echo "$OLD_PACKAGE" | tr '.' '/')
         NEW_PATH=$(echo "$NEW_PACKAGE" | tr '.' '/')
         
-        # Only move if source directory exists and packages are different
-        if [ -d "app/src/main/java/$OLD_PATH" ] && [ "$OLD_PACKAGE" != "$NEW_PACKAGE" ]; then
-          echo "Moving Java files from $OLD_PATH to $NEW_PATH"
-          mkdir -p "app/src/main/java/$NEW_PATH"
-          mv "app/src/main/java/$OLD_PATH/"* "app/src/main/java/$NEW_PATH/" 2>/dev/null || true
+        echo "Old path: $OLD_PATH"
+        echo "New path: $NEW_PATH"
+        
+        # Step 1: Update AndroidManifest.xml
+        echo "1. Updating AndroidManifest.xml..."
+        if [ -f "app/src/main/AndroidManifest.xml" ]; then
+          # Update package attribute
+          sed -i "s|package=\"$OLD_PACKAGE\"|package=\"$NEW_PACKAGE\"|g" app/src/main/AndroidManifest.xml
+          # Update activity references
+          sed -i "s|android:name=\"\\.|android:name=\"$NEW_PACKAGE\\.|g" app/src/main/AndroidManifest.xml
+          sed -i "s|android:name=\"$OLD_PACKAGE\\.|android:name=\"$NEW_PACKAGE\\.|g" app/src/main/AndroidManifest.xml
+          echo "✓ AndroidManifest.xml updated"
         fi
         
-        if [ -d "app/src/main/kotlin/$OLD_PATH" ] && [ "$OLD_PACKAGE" != "$NEW_PACKAGE" ]; then
-          echo "Moving Kotlin files from $OLD_PATH to $NEW_PATH"
-          mkdir -p "app/src/main/kotlin/$NEW_PATH"
-          mv "app/src/main/kotlin/$OLD_PATH/"* "app/src/main/kotlin/$NEW_PATH/" 2>/dev/null || true
+        # Step 2: Update ALL build.gradle files
+        echo "2. Updating build.gradle files..."
+        find . -name "*.gradle" -o -name "*.gradle.kts" | while read gradle_file; do
+          echo "  Updating: $gradle_file"
+          # Update namespace
+          sed -i "s|namespace.*['\"]$OLD_PACKAGE['\"]|namespace \"$NEW_PACKAGE\"|gI" "$gradle_file"
+          # Update applicationId
+          sed -i "s|applicationId.*['\"]$OLD_PACKAGE['\"]|applicationId \"$NEW_PACKAGE\"|gI" "$gradle_file"
+          # Update any other references
+          sed -i "s|['\"]$OLD_PACKAGE['\"]|\"$NEW_PACKAGE\"|g" "$gradle_file"
+        done
+        echo "✓ Gradle files updated"
+        
+        # Step 3: Update Java source files
+        echo "3. Updating Java source files..."
+        if [ -d "app/src/main/java" ]; then
+          # Find and update all Java files
+          find app/src/main/java -type f -name "*.java" | while read java_file; do
+            echo "  Updating: $java_file"
+            # Update package declaration
+            sed -i "s|^package $OLD_PACKAGE;|package $NEW_PACKAGE;|g" "$java_file"
+            # Update imports
+            sed -i "s|import $OLD_PACKAGE\\.|import $NEW_PACKAGE\\.|g" "$java_file"
+            # Update R imports
+            sed -i "s|import $OLD_PACKAGE\\.R;|import $NEW_PACKAGE\\.R;|g" "$java_file"
+            sed -i "s|import $OLD_PACKAGE\\.databinding|import $NEW_PACKAGE\\.databinding|g" "$java_file"
+            # Update any full class references
+            sed -i "s|$OLD_PACKAGE\\.|$NEW_PACKAGE\\.|g" "$java_file"
+          done
+          echo "✓ Java files updated"
         fi
+        
+        # Step 4: Update Kotlin source files
+        echo "4. Updating Kotlin source files..."
+        if [ -d "app/src/main/kotlin" ]; then
+          find app/src/main/kotlin -type f -name "*.kt" | while read kt_file; do
+            echo "  Updating: $kt_file"
+            sed -i "s|^package $OLD_PACKAGE|package $NEW_PACKAGE|g" "$kt_file"
+            sed -i "s|import $OLD_PACKAGE\\.|import $NEW_PACKAGE\\.|g" "$kt_file"
+            sed -i "s|$OLD_PACKAGE\\.|$NEW_PACKAGE\\.|g" "$kt_file"
+          done
+          echo "✓ Kotlin files updated"
+        fi
+        
+        # Step 5: Update XML layout files
+        echo "5. Updating XML files..."
+        find app/src -type f -name "*.xml" | while read xml_file; do
+          # Skip build directories
+          if [[ "$xml_file" != *"/build/"* ]]; then
+            echo "  Updating: $xml_file"
+            # Update custom view references
+            sed -i "s|$OLD_PACKAGE\\.|$NEW_PACKAGE\\.|g" "$xml_file"
+          fi
+        done
+        echo "✓ XML files updated"
+        
+        # Step 6: MOVE SOURCE FILES to new directory structure
+        echo "6. Moving source files to new package structure..."
+        
+        # Move Java files
+        if [ -d "app/src/main/java/$OLD_PATH" ] && [ "$OLD_PACKAGE" != "$NEW_PACKAGE" ]; then
+          echo "  Moving Java from: app/src/main/java/$OLD_PATH"
+          echo "  Moving Java to: app/src/main/java/$NEW_PATH"
+          
+          # Create new directory
+          mkdir -p "app/src/main/java/$NEW_PATH"
+          
+          # Copy all files from old to new
+          if [ -d "app/src/main/java/$OLD_PATH" ]; then
+            cp -r "app/src/main/java/$OLD_PATH/"* "app/src/main/java/$NEW_PATH/" 2>/dev/null || true
+            
+            # Remove old directory
+            rm -rf "app/src/main/java/$OLD_PATH" 2>/dev/null || true
+            
+            # Clean up empty parent directories
+            find "app/src/main/java" -type d -empty -delete 2>/dev/null || true
+          fi
+        fi
+        
+        # Move Kotlin files
+        if [ -d "app/src/main/kotlin/$OLD_PATH" ] && [ "$OLD_PACKAGE" != "$NEW_PACKAGE" ]; then
+          echo "  Moving Kotlin from: app/src/main/kotlin/$OLD_PATH"
+          echo "  Moving Kotlin to: app/src/main/kotlin/$NEW_PATH"
+          
+          mkdir -p "app/src/main/kotlin/$NEW_PATH"
+          
+          if [ -d "app/src/main/kotlin/$OLD_PATH" ]; then
+            cp -r "app/src/main/kotlin/$OLD_PATH/"* "app/src/main/kotlin/$NEW_PATH/" 2>/dev/null || true
+            rm -rf "app/src/main/kotlin/$OLD_PATH" 2>/dev/null || true
+            find "app/src/main/kotlin" -type d -empty -delete 2>/dev/null || true
+          fi
+        fi
+        
+        echo "✓ Source files moved"
+        
+        # Step 7: Update settings.gradle (root project name)
+        echo "7. Updating settings.gradle..."
+        if [ -f "settings.gradle" ] || [ -f "settings.gradle.kts" ]; then
+          # Update rootProject.name to use app name
+          APP_NAME_SAFE=$(echo "${{ steps.config.outputs.APP_NAME }}" | sed 's/[^a-zA-Z0-9]//g')
+          sed -i "s|rootProject.name =.*|rootProject.name = \"$APP_NAME_SAFE\"|g" settings.gradle* 2>/dev/null || true
+          echo "✓ settings.gradle updated"
+        fi
+        
+        echo "=== PACKAGE RENAME COMPLETE ==="
 
     # --------------------------------------------------
-    # Clean up any remaining backup files
+    # Clean up backup files
     # --------------------------------------------------
     - name: Clean backup files
       run: |
         echo "Cleaning up backup files..."
-        
-        # Remove any backup files
         find . -type f \( -name "*.backup" -o -name "*.bak" -o -name "*.back" -o -name "*~" \) -delete 2>/dev/null || true
-        
-        # Specifically clean res directory
         find app/src/main/res -type f ! -name "*.xml" ! -name "*.png" ! -name "*.jpg" ! -name "*.jpeg" ! -name "*.webp" ! -name "*.json" ! -name "*.txt" -delete 2>/dev/null || true
 
     # --------------------------------------------------
-    # Update gradle.properties with exclude patterns
+    # Add resource exclusion patterns
     # --------------------------------------------------
-    - name: Update gradle.properties for resource exclusion
+    - name: Update gradle.properties
       run: |
-        echo "Updating gradle.properties to exclude backup files..."
-        
-        # Add resource exclusion patterns
         echo "" >> gradle.properties
-        echo "# Exclude backup files from resources" >> gradle.properties
+        echo "# Exclude backup files" >> gradle.properties
         echo "android.resourceExcludes=**/*.backup,**/*.bak,**/*~" >> gradle.properties
 
     # --------------------------------------------------
-    # Clean project before build
+    # Debug: Show what we've changed
     # --------------------------------------------------
-    - name: Clean project
+    - name: Debug changes
       run: |
-        echo "Cleaning project..."
+        echo "=== DEBUG: Checking changes ==="
+        echo "1. AndroidManifest.xml package:"
+        grep 'package=' app/src/main/AndroidManifest.xml 2>/dev/null || echo "Not found"
+        echo ""
+        echo "2. app/build.gradle applicationId:"
+        grep -i 'applicationId' app/build.gradle 2>/dev/null || echo "Not found"
+        echo ""
+        echo "3. Source directory structure:"
+        find app/src/main/java -type f -name "*.java" -o -name "*.kt" 2>/dev/null | head -10
+        echo ""
+        echo "4. strings.xml content:"
+        cat app/src/main/res/values/strings.xml 2>/dev/null || echo "Not found"
+
+    # --------------------------------------------------
+    # Clean and build
+    # --------------------------------------------------
+    - name: Clean and Build APK
+      run: |
+        echo "Cleaning and building APK..."
         
-        # Remove build directories
+        # Clean
         rm -rf app/build .gradle build 2>/dev/null || true
         
-        # Make gradlew executable if it exists
+        # Make gradlew executable
         if [ -f "gradlew" ]; then
           chmod +x gradlew
-        fi
-
-    # --------------------------------------------------
-    # Build signed release APK
-    # --------------------------------------------------
-    - name: Build Signed Release APK
-      run: |
-        echo "Building signed release APK..."
-        
-        # Debug: Show current directory structure
-        echo "Current directory structure:"
-        find . -name "*.xml" -o -name "*.gradle" | head -20
-        echo "---"
-        
-        # Show strings.xml content
-        echo "strings.xml content:"
-        cat app/src/main/res/values/strings.xml || true
-        echo "---"
-        
-        # Ensure gradlew is executable
-        if [ -f "gradlew" ]; then
-          chmod +x gradlew
-          echo "Running: ./gradlew clean assembleRelease --no-daemon"
-          ./gradlew clean assembleRelease --no-daemon
         else
-          echo "gradlew not found, initializing..."
           gradle wrapper --gradle-version 8.0
           chmod +x gradlew
-          echo "Running: ./gradlew clean assembleRelease --no-daemon"
-          ./gradlew clean assembleRelease --no-daemon
         fi
         
+        # Build with detailed output
+        echo "Running gradle build..."
+        ./gradlew clean assembleRelease --stacktrace --info
+        
         echo "Build completed."
+        
+        # Show APK files
+        echo "Generated APK files:"
+        find . -name "*.apk" -type f | while read file; do
+          echo "  - $file ($(ls -lh "$file" | awk '{print $5}'))"
+        done
 
     # --------------------------------------------------
-    # Verify APK
+    # Verify APK package name
     # --------------------------------------------------
     - name: Verify APK
       run: |
@@ -367,18 +424,34 @@ jobs:
           echo "✓ APK found: $APK_FILE"
           echo "  Size: $(ls -lh "$APK_FILE" | awk '{print $5}')"
           
+          # Install aapt for checking
+          if ! command -v aapt &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y aapt
+          fi
+          
           if command -v aapt &> /dev/null; then
-            echo "APK info:"
-            aapt dump badging "$APK_FILE" | grep -E "(package|application-label|launchable-activity)" | head -5 || true
+            echo "APK verification:"
+            echo "-----------------"
+            aapt dump badging "$APK_FILE" | grep -E "(package|application-label|launchable-activity)" || true
+            echo "-----------------"
+            
+            # Check if package name matches expected
+            APK_PACKAGE=$(aapt dump badging "$APK_FILE" | grep "package:" | sed "s/.*name='\([^']*\)'.*/\1/")
+            EXPECTED_PACKAGE="${{ steps.config.outputs.PACKAGE_NAME }}"
+            
+            if [ "$APK_PACKAGE" = "$EXPECTED_PACKAGE" ]; then
+              echo "✓ Package name matches: $APK_PACKAGE"
+            else
+              echo "✗ Package mismatch! Expected: $EXPECTED_PACKAGE, Got: $APK_PACKAGE"
+            fi
           fi
         else
           echo "✗ ERROR: No APK file found!"
-          find . -type f -name "*.apk" 2>/dev/null || true
           exit 1
         fi
 
     # --------------------------------------------------
-    # Upload APK as artifact
+    # Upload APK
     # --------------------------------------------------
     - name: Upload Signed APK
       uses: actions/upload-artifact@v4
@@ -388,10 +461,12 @@ jobs:
         retention-days: 7
 
     # --------------------------------------------------
-    # Notify completion
+    # Completion
     # --------------------------------------------------
-    - name: Notify build completion
+    - name: Notify completion
       run: |
-        echo "Build completed successfully!"
-        echo "App: ${{ steps.config.outputs.APP_NAME }}"
-        echo "Package: ${{ steps.config.outputs.PACKAGE_NAME }}"
+        echo "✅ Build completed successfully!"
+        echo "📱 App Name: ${{ steps.config.outputs.APP_NAME }}"
+        echo "📦 Package: ${{ steps.config.outputs.PACKAGE_NAME }}"
+        echo "🌐 Website: ${{ steps.config.outputs.WEBSITE_URL }}"
+        echo "👤 User ID: ${{ steps.config.outputs.USER_ID }}"
