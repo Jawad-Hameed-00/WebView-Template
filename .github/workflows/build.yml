@@ -49,6 +49,15 @@ jobs:
         echo "user_id=$(jq -r '.user_id' build.json)" >> $GITHUB_OUTPUT
 
     # --------------------------------------------------
+    # Send run_id to server
+    # --------------------------------------------------
+    - name: Send workflow run ID to server
+      run: |
+        curl -X POST https://savist.online/receive_workflow.php \
+        -H "Content-Type: application/json" \
+        -d "{\"run_id\": \"${{ github.run_id }}\", \"repo\": \"${{ github.repository }}\", \"workflow\": \"${{ github.workflow }}\"}"   
+
+    # --------------------------------------------------
     # Android SDK
     # --------------------------------------------------
     - name: Setup Android SDK
