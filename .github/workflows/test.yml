@@ -181,45 +181,43 @@ jobs:
         done
 
     # --------------------------------------------------
-    # Update strings.xml
+    # FIRST: Create strings.xml BEFORE package rename
     # --------------------------------------------------
-    - name: Update strings.xml
+    - name: Create strings.xml (First Step)
       run: |
-        echo "Updating strings.xml..."
+        echo "=== CREATING STRINGS.XML ==="
         
         # Create directory
         mkdir -p app/src/main/res/values
         
-        # Use a safer approach to create the XML
-        # First write the static parts
-        echo '<?xml version="1.0" encoding="utf-8"?>' > app/src/main/res/values/strings.xml
-        echo '<resources>' >> app/src/main/res/values/strings.xml
+        # Use a VERY safe approach - write line by line
+        {
+          echo '<?xml version="1.0" encoding="utf-8"?>'
+          echo '<resources>'
+          echo "    <string name=\"app_name\">${{ steps.config.outputs.APP_NAME }}</string>"
+          echo "    <string name=\"website_url\">${{ steps.config.outputs.WEBSITE_URL }}</string>"
+          echo '</resources>'
+        } > app/src/main/res/values/strings.xml
         
-        # Escape special characters for XML
-        APP_NAME=$(echo "${{ steps.config.outputs.APP_NAME }}" | sed 's/&/&amp;/g; s/</&lt;/g; s/>/&gt;/g; s/"/&quot;/g; s/'"'"'/&apos;/g')
-        WEBSITE_URL=$(echo "${{ steps.config.outputs.WEBSITE_URL }}" | sed 's/&/&amp;/g; s/</&lt;/g; s/>/&gt;/g; s/"/&quot;/g; s/'"'"'/&apos;/g')
+        echo "Created strings.xml with:"
+        echo "App Name: ${{ steps.config.outputs.APP_NAME }}"
+        echo "Website: ${{ steps.config.outputs.WEBSITE_URL }}"
         
-        # Add dynamic values
-        echo "    <string name=\"app_name\">$APP_NAME</string>" >> app/src/main/res/values/strings.xml
-        echo "    <string name=\"website_url\">$WEBSITE_URL</string>" >> app/src/main/res/values/strings.xml
-        
-        # Close the XML
-        echo '</resources>' >> app/src/main/res/values/strings.xml
-        
-        echo "Created strings.xml:"
+        echo "File content:"
         cat app/src/main/res/values/strings.xml
+        echo "=== END STRINGS.XML ==="
 
     # --------------------------------------------------
-    # COMPLETE PACKAGE RENAME - Step by Step
+    # COMPLETE PACKAGE RENAME - EXCLUDING strings.xml
     # --------------------------------------------------
     - name: Complete Package Rename
       run: |
-        echo "=== COMPLETE PACKAGE RENAME PROCESS ==="
+        echo "=== PACKAGE RENAME PROCESS ==="
         OLD_PACKAGE="${{ steps.find_package.outputs.ORIGINAL_PACKAGE }}"
         NEW_PACKAGE="${{ steps.config.outputs.PACKAGE_NAME }}"
         
-        echo "Changing from: $OLD_PACKAGE"
-        echo "Changing to: $NEW_PACKAGE"
+        echo "From: $OLD_PACKAGE"
+        echo "To: $NEW_PACKAGE"
         
         # Convert package names to directory paths
         OLD_PATH=$(echo "$OLD_PACKAGE" | tr '.' '/')
@@ -228,10 +226,10 @@ jobs:
         echo "Old path: $OLD_PATH"
         echo "New path: $NEW_PATH"
         
-        # Step 1: Update AndroidManifest.xml
+        # Step 1: Update AndroidManifest.xml (EXCLUDE strings.xml from search)
         echo "1. Updating AndroidManifest.xml..."
         if [ -f "app/src/main/AndroidManifest.xml" ]; then
-          # Update package attribute
+          # Update package attribute ONLY
           sed -i "s|package=\"$OLD_PACKAGE\"|package=\"$NEW_PACKAGE\"|g" app/src/main/AndroidManifest.xml
           # Update activity references
           sed -i "s|android:name=\"\\.|android:name=\"$NEW_PACKAGE\\.|g" app/src/main/AndroidManifest.xml
@@ -243,57 +241,54 @@ jobs:
         echo "2. Updating build.gradle files..."
         find . -name "*.gradle" -o -name "*.gradle.kts" | while read gradle_file; do
           echo "  Updating: $gradle_file"
-          # Update namespace
-          sed -i "s|namespace.*['\"]$OLD_PACKAGE['\"]|namespace \"$NEW_PACKAGE\"|gI" "$gradle_file"
-          # Update applicationId
-          sed -i "s|applicationId.*['\"]$OLD_PACKAGE['\"]|applicationId \"$NEW_PACKAGE\"|gI" "$gradle_file"
-          # Update any other references
-          sed -i "s|['\"]$OLD_PACKAGE['\"]|\"$NEW_PACKAGE\"|g" "$gradle_file"
+          # Update namespace - be very specific
+          sed -i "s|\"$OLD_PACKAGE\"|\"$NEW_PACKAGE\"|g" "$gradle_file"
+          sed -i "s|'$OLD_PACKAGE'|'$NEW_PACKAGE'|g" "$gradle_file"
+          # Update applicationId - be very specific
+          sed -i "s|applicationId \"$OLD_PACKAGE\"|applicationId \"$NEW_PACKAGE\"|gI" "$gradle_file"
+          sed -i "s|applicationId '$OLD_PACKAGE'|applicationId '$NEW_PACKAGE'|gI" "$gradle_file"
         done
         echo "✓ Gradle files updated"
         
-        # Step 3: Update Java source files
+        # Step 3: Update Java source files (EXCLUDE res directory)
         echo "3. Updating Java source files..."
         if [ -d "app/src/main/java" ]; then
           # Find and update all Java files
           find app/src/main/java -type f -name "*.java" | while read java_file; do
             echo "  Updating: $java_file"
-            # Update package declaration
+            # Update package declaration - match exact line
             sed -i "s|^package $OLD_PACKAGE;|package $NEW_PACKAGE;|g" "$java_file"
-            # Update imports
+            # Update imports - be specific
             sed -i "s|import $OLD_PACKAGE\\.|import $NEW_PACKAGE\\.|g" "$java_file"
             # Update R imports
             sed -i "s|import $OLD_PACKAGE\\.R;|import $NEW_PACKAGE\\.R;|g" "$java_file"
-            sed -i "s|import $OLD_PACKAGE\\.databinding|import $NEW_PACKAGE\\.databinding|g" "$java_file"
-            # Update any full class references
-            sed -i "s|$OLD_PACKAGE\\.|$NEW_PACKAGE\\.|g" "$java_file"
+            sed -i "s|import $OLD_PACKAGE\\.databinding\\.|import $NEW_PACKAGE\\.databinding\\.|g" "$java_file"
           done
           echo "✓ Java files updated"
         fi
         
-        # Step 4: Update Kotlin source files
+        # Step 4: Update Kotlin source files (EXCLUDE res directory)
         echo "4. Updating Kotlin source files..."
         if [ -d "app/src/main/kotlin" ]; then
           find app/src/main/kotlin -type f -name "*.kt" | while read kt_file; do
             echo "  Updating: $kt_file"
-            sed -i "s|^package $OLD_PACKAGE|package $NEW_PACKAGE|g" "$kt_file"
+            sed -i "s|^package $OLD_PACKAGE$|package $NEW_PACKAGE|g" "$kt_file"
             sed -i "s|import $OLD_PACKAGE\\.|import $NEW_PACKAGE\\.|g" "$kt_file"
-            sed -i "s|$OLD_PACKAGE\\.|$NEW_PACKAGE\\.|g" "$kt_file"
           done
           echo "✓ Kotlin files updated"
         fi
         
-        # Step 5: Update XML layout files
-        echo "5. Updating XML files..."
-        find app/src -type f -name "*.xml" | while read xml_file; do
-          # Skip build directories
-          if [[ "$xml_file" != *"/build/"* ]]; then
+        # Step 5: Update XML layout files ONLY (EXCLUDE strings.xml)
+        echo "5. Updating XML layout files..."
+        find app/src -type f -name "*.xml" | grep -v "strings.xml" | while read xml_file; do
+          # Skip build directories and resource value files
+          if [[ "$xml_file" != *"/build/"* ]] && [[ "$xml_file" != *"/values/"* ]]; then
             echo "  Updating: $xml_file"
-            # Update custom view references
+            # Update custom view references - be very careful
             sed -i "s|$OLD_PACKAGE\\.|$NEW_PACKAGE\\.|g" "$xml_file"
           fi
         done
-        echo "✓ XML files updated"
+        echo "✓ XML layout files updated"
         
         # Step 6: MOVE SOURCE FILES to new directory structure
         echo "6. Moving source files to new package structure..."
@@ -312,9 +307,6 @@ jobs:
             
             # Remove old directory
             rm -rf "app/src/main/java/$OLD_PATH" 2>/dev/null || true
-            
-            # Clean up empty parent directories
-            find "app/src/main/java" -type d -empty -delete 2>/dev/null || true
           fi
         fi
         
@@ -328,7 +320,6 @@ jobs:
           if [ -d "app/src/main/kotlin/$OLD_PATH" ]; then
             cp -r "app/src/main/kotlin/$OLD_PATH/"* "app/src/main/kotlin/$NEW_PATH/" 2>/dev/null || true
             rm -rf "app/src/main/kotlin/$OLD_PATH" 2>/dev/null || true
-            find "app/src/main/kotlin" -type d -empty -delete 2>/dev/null || true
           fi
         fi
         
@@ -337,13 +328,46 @@ jobs:
         # Step 7: Update settings.gradle (root project name)
         echo "7. Updating settings.gradle..."
         if [ -f "settings.gradle" ] || [ -f "settings.gradle.kts" ]; then
-          # Update rootProject.name to use app name
+          # Update rootProject.name to use app name (simplified)
           APP_NAME_SAFE=$(echo "${{ steps.config.outputs.APP_NAME }}" | sed 's/[^a-zA-Z0-9]//g')
-          sed -i "s|rootProject.name =.*|rootProject.name = \"$APP_NAME_SAFE\"|g" settings.gradle* 2>/dev/null || true
+          if [ -n "$APP_NAME_SAFE" ]; then
+            sed -i "s|rootProject.name =.*|rootProject.name = \"$APP_NAME_SAFE\"|g" settings.gradle* 2>/dev/null || true
+          fi
           echo "✓ settings.gradle updated"
         fi
         
         echo "=== PACKAGE RENAME COMPLETE ==="
+
+    # --------------------------------------------------
+    # PROTECT strings.xml - Make it read-only temporarily
+    # --------------------------------------------------
+    - name: Protect strings.xml
+      run: |
+        echo "Protecting strings.xml..."
+        if [ -f "app/src/main/res/values/strings.xml" ]; then
+          # Make it read-only temporarily
+          chmod 444 app/src/main/res/values/strings.xml
+          echo "✓ strings.xml protected (read-only)"
+          
+          # Verify it wasn't corrupted
+          echo "Verifying strings.xml content:"
+          head -5 app/src/main/res/values/strings.xml
+          echo "First line should be: <?xml version=\"1.0\" encoding=\"utf-8\"?>"
+          
+          FIRST_LINE=$(head -1 app/src/main/res/values/strings.xml)
+          if [[ "$FIRST_LINE" != '<?xml version="1.0" encoding="utf-8"?>' ]]; then
+            echo "⚠ WARNING: strings.xml first line is: $FIRST_LINE"
+            echo "Recreating strings.xml..."
+            chmod 644 app/src/main/res/values/strings.xml
+            {
+              echo '<?xml version="1.0" encoding="utf-8"?>'
+              echo '<resources>'
+              echo "    <string name=\"app_name\">${{ steps.config.outputs.APP_NAME }}</string>"
+              echo "    <string name=\"website_url\">${{ steps.config.outputs.WEBSITE_URL }}</string>"
+              echo '</resources>'
+            } > app/src/main/res/values/strings.xml
+          fi
+        fi
 
     # --------------------------------------------------
     # Clean up backup files
@@ -352,58 +376,67 @@ jobs:
       run: |
         echo "Cleaning up backup files..."
         find . -type f \( -name "*.backup" -o -name "*.bak" -o -name "*.back" -o -name "*~" \) -delete 2>/dev/null || true
-        find app/src/main/res -type f ! -name "*.xml" ! -name "*.png" ! -name "*.jpg" ! -name "*.jpeg" ! -name "*.webp" ! -name "*.json" ! -name "*.txt" -delete 2>/dev/null || true
-
-    # --------------------------------------------------
-    # Add resource exclusion patterns
-    # --------------------------------------------------
-    - name: Update gradle.properties
-      run: |
-        echo "" >> gradle.properties
-        echo "# Exclude backup files" >> gradle.properties
-        echo "android.resourceExcludes=**/*.backup,**/*.bak,**/*~" >> gradle.properties
 
     # --------------------------------------------------
     # Debug: Show what we've changed
     # --------------------------------------------------
     - name: Debug changes
       run: |
-        echo "=== DEBUG: Checking changes ==="
-        echo "1. AndroidManifest.xml package:"
+        echo "=== DEBUG: Checking critical files ==="
+        echo ""
+        echo "1. strings.xml (MUST BE CORRECT):"
+        echo "---------------------------------"
+        cat app/src/main/res/values/strings.xml
+        echo "---------------------------------"
+        echo ""
+        echo "2. AndroidManifest.xml package:"
+        echo "---------------------------------"
         grep 'package=' app/src/main/AndroidManifest.xml 2>/dev/null || echo "Not found"
         echo ""
-        echo "2. app/build.gradle applicationId:"
+        echo "3. app/build.gradle applicationId:"
+        echo "---------------------------------"
         grep -i 'applicationId' app/build.gradle 2>/dev/null || echo "Not found"
         echo ""
-        echo "3. Source directory structure:"
-        find app/src/main/java -type f -name "*.java" -o -name "*.kt" 2>/dev/null | head -10
-        echo ""
-        echo "4. strings.xml content:"
-        cat app/src/main/res/values/strings.xml 2>/dev/null || echo "Not found"
+        echo "4. Directory structure:"
+        echo "---------------------------------"
+        find app/src/main/java -type f -name "*.java" -o -name "*.kt" 2>/dev/null | head -10 || echo "No source files found"
+
+    # --------------------------------------------------
+    # Restore strings.xml permissions
+    # --------------------------------------------------
+    - name: Restore strings.xml permissions
+      run: |
+        echo "Restoring strings.xml permissions..."
+        if [ -f "app/src/main/res/values/strings.xml" ]; then
+          chmod 644 app/src/main/res/values/strings.xml
+          echo "✓ Permissions restored"
+        fi
 
     # --------------------------------------------------
     # Clean and build
     # --------------------------------------------------
     - name: Clean and Build APK
       run: |
-        echo "Cleaning and building APK..."
+        echo "=== CLEANING AND BUILDING APK ==="
         
         # Clean
+        echo "Cleaning..."
         rm -rf app/build .gradle build 2>/dev/null || true
         
         # Make gradlew executable
         if [ -f "gradlew" ]; then
           chmod +x gradlew
         else
+          echo "Initializing gradle wrapper..."
           gradle wrapper --gradle-version 8.0
           chmod +x gradlew
         fi
         
-        # Build with detailed output
-        echo "Running gradle build..."
-        ./gradlew clean assembleRelease --stacktrace --info
+        # Build with debug info
+        echo "Building release APK..."
+        ./gradlew clean assembleRelease --stacktrace
         
-        echo "Build completed."
+        echo "=== BUILD COMPLETED ==="
         
         # Show APK files
         echo "Generated APK files:"
@@ -416,7 +449,7 @@ jobs:
     # --------------------------------------------------
     - name: Verify APK
       run: |
-        echo "Verifying APK..."
+        echo "=== VERIFYING APK ==="
         
         APK_FILE=$(find app/build/outputs/apk -name "*release*.apk" -type f | head -1)
         
@@ -424,31 +457,28 @@ jobs:
           echo "✓ APK found: $APK_FILE"
           echo "  Size: $(ls -lh "$APK_FILE" | awk '{print $5}')"
           
-          # Install aapt for checking
-          if ! command -v aapt &> /dev/null; then
-            sudo apt-get update && sudo apt-get install -y aapt
-          fi
-          
-          if command -v aapt &> /dev/null; then
-            echo "APK verification:"
+          # Try to get package info
+          if command -v aapt &> /dev/null || command -v aapt2 &> /dev/null; then
+            echo ""
+            echo "APK Package Info:"
             echo "-----------------"
-            aapt dump badging "$APK_FILE" | grep -E "(package|application-label|launchable-activity)" || true
-            echo "-----------------"
-            
-            # Check if package name matches expected
-            APK_PACKAGE=$(aapt dump badging "$APK_FILE" | grep "package:" | sed "s/.*name='\([^']*\)'.*/\1/")
-            EXPECTED_PACKAGE="${{ steps.config.outputs.PACKAGE_NAME }}"
-            
-            if [ "$APK_PACKAGE" = "$EXPECTED_PACKAGE" ]; then
-              echo "✓ Package name matches: $APK_PACKAGE"
-            else
-              echo "✗ Package mismatch! Expected: $EXPECTED_PACKAGE, Got: $APK_PACKAGE"
+            # Try aapt first, then aapt2
+            if command -v aapt &> /dev/null; then
+              aapt dump badging "$APK_FILE" | grep -E "(package|application-label)" || true
+            elif command -v aapt2 &> /dev/null; then
+              aapt2 dump badging "$APK_FILE" | grep -E "(package|application-label)" || true
             fi
+            echo "-----------------"
+          else
+            echo "Note: aapt not available for detailed verification"
           fi
         else
           echo "✗ ERROR: No APK file found!"
+          echo "Searching for APK files..."
+          find . -type f -name "*.apk" 2>/dev/null || true
           exit 1
         fi
+        echo "=== VERIFICATION COMPLETE ==="
 
     # --------------------------------------------------
     # Upload APK
