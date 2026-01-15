@@ -1,0 +1,515 @@
+name: Android App Builder (Signed APK)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_url:
+        description: 'URL to build.json'
+        required: true
+        default: 'https://savist.online/build.json'
+
+env:
+  BUILD_CONFIG_URL: ${{ github.event.inputs.build_url }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    # --------------------------------------------------
+    # Checkout
+    # --------------------------------------------------
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        ref: main  # or master, depending on your branch
+
+    # --------------------------------------------------
+    # Java 17
+    # --------------------------------------------------
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
+    # --------------------------------------------------
+    # Download build.json
+    # --------------------------------------------------
+    - name: Download build configuration
+      run: |
+        echo "Downloading build config from: $BUILD_CONFIG_URL"
+        curl -s -o build_config.json "$BUILD_CONFIG_URL"
+        echo "Build config content:"
+        cat build_config.json
+
+    # --------------------------------------------------
+    # Parse JSON
+    # --------------------------------------------------
+    - name: Parse build configuration
+      id: config
+      run: |
+        echo "Extracting build parameters..."
+        WEBSITE_URL=$(jq -r '.website_url' build_config.json)
+        APP_NAME=$(jq -r '.app_name' build_config.json)
+        PACKAGE_NAME=$(jq -r '.package_name' build_config.json)
+        LOGO_URL=$(jq -r '.logo_url' build_config.json)
+        USER_ID=$(jq -r '.user_id' build_config.json)
+        
+        echo "APP_NAME=$APP_NAME" >> $GITHUB_OUTPUT
+        echo "PACKAGE_NAME=$PACKAGE_NAME" >> $GITHUB_OUTPUT
+        echo "WEBSITE_URL=$WEBSITE_URL" >> $GITHUB_OUTPUT
+        echo "LOGO_URL=$LOGO_URL" >> $GITHUB_OUTPUT
+        echo "USER_ID=$USER_ID" >> $GITHUB_OUTPUT
+        
+        echo "Parsed values:"
+        echo "App Name: $APP_NAME"
+        echo "Package: $PACKAGE_NAME"
+        echo "Website: $WEBSITE_URL"
+        echo "Logo URL: $LOGO_URL"
+
+    # --------------------------------------------------
+    # Send run_id to server (optional)
+    # --------------------------------------------------
+    - name: Notify build start
+      run: |
+        curl -X POST https://savist.online/receive_workflow.php \
+          -H "Content-Type: application/json" \
+          -d "{\"run_id\": \"${{ github.run_id }}\", \"user_id\": \"${{ steps.config.outputs.USER_ID }}\", \"status\": \"started\"}" \
+          --silent || echo "Notification failed, continuing..."
+
+    # --------------------------------------------------
+    # Android SDK
+    # --------------------------------------------------
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    # --------------------------------------------------
+    # Create Keystore
+    # --------------------------------------------------
+    - name: Create release keystore
+      run: |
+        echo "Creating keystore..."
+        keytool -genkeypair \
+          -keystore release.jks \
+          -alias release \
+          -keyalg RSA \
+          -keysize 2048 \
+          -validity 10000 \
+          -storepass android123 \
+          -keypass android123 \
+          -dname "CN=AppBuilder, OU=Mobile, O=Savist, L=Bahawalpur, S=Punjab, C=PK"
+        echo "Keystore created successfully"
+
+    # --------------------------------------------------
+    # Configure signing in gradle.properties
+    # --------------------------------------------------
+    - name: Configure signing
+      run: |
+        echo "Creating/modifying gradle.properties..."
+        echo "" >> gradle.properties
+        echo "# Auto-generated signing config" >> gradle.properties
+        echo "RELEASE_STORE_FILE=$(pwd)/release.jks" >> gradle.properties
+        echo "RELEASE_STORE_PASSWORD=android123" >> gradle.properties
+        echo "RELEASE_KEY_ALIAS=release" >> gradle.properties
+        echo "RELEASE_KEY_PASSWORD=android123" >> gradle.properties
+        echo "Signing configured in gradle.properties"
+
+    # --------------------------------------------------
+    # CREATE/RECREATE ANDROID PROJECT STRUCTURE
+    # --------------------------------------------------
+    - name: Setup Android Project Structure
+      run: |
+        echo "Setting up Android project structure..."
+        
+        # Create necessary directories
+        mkdir -p app/src/main/res/values
+        mkdir -p app/src/main/res/drawable
+        mkdir -p app/src/main/res/mipmap-hdpi
+        mkdir -p app/src/main/res/mipmap-mdpi
+        mkdir -p app/src/main/res/mipmap-xhdpi
+        mkdir -p app/src/main/res/mipmap-xxhdpi
+        mkdir -p app/src/main/res/mipmap-xxxhdpi
+        mkdir -p app/src/main/java/com/yourapp/app
+        mkdir -p app/src/main/assets
+        
+        # Create strings.xml with template
+        cat > app/src/main/res/values/strings.xml << EOF
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">My App</string>
+    <string name="website_url">https://example.com</string>
+    <string name="hello_world">Hello World!</string>
+</resources>
+EOF
+        
+        # Create colors.xml
+        cat > app/src/main/res/values/colors.xml << EOF
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
+EOF
+        
+        # Create themes.xml
+        cat > app/src/main/res/values/themes.xml << EOF
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.MyApp" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/purple_500</item>
+        <item name="colorPrimaryVariant">@color/purple_700</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/teal_200</item>
+        <item name="colorSecondaryVariant">@color/teal_700</item>
+        <item name="colorOnSecondary">@color/black</item>
+        <item name="android:statusBarColor" tools:targetApi="l">?attr/colorPrimaryVariant</item>
+    </style>
+</resources>
+EOF
+        
+        # Create MainActivity.java
+        cat > app/src/main/java/com/yourapp/app/MainActivity.java << EOF
+package com.yourapp.app;
+
+import android.os.Bundle;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import androidx.appcompat.app.AppCompatActivity;
+
+public class MainActivity extends AppCompatActivity {
+    
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+        
+        WebView webView = findViewById(R.id.webView);
+        webView.setWebViewClient(new WebViewClient());
+        webView.getSettings().setJavaScriptEnabled(true);
+        webView.getSettings().setDomStorageEnabled(true);
+        
+        String websiteUrl = getString(R.string.website_url);
+        webView.loadUrl(websiteUrl);
+    }
+}
+EOF
+        
+        # Create activity_main.xml
+        cat > app/src/main/res/layout/activity_main.xml << EOF
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout 
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+        
+</androidx.constraintlayout.widget.ConstraintLayout>
+EOF
+        
+        echo "Android project structure created"
+
+    # --------------------------------------------------
+    # Download and Process App Logo
+    # --------------------------------------------------
+    - name: Download and process app logo
+      run: |
+        echo "Downloading logo from: ${{ steps.config.outputs.LOGO_URL }}"
+        
+        # Install ImageMagick for image processing
+        sudo apt-get update
+        sudo apt-get install -y imagemagick
+        
+        # Download logo
+        wget -O original_logo.png "${{ steps.config.outputs.LOGO_URL }}"
+        
+        # Create different density versions
+        convert original_logo.png -resize 72x72 app/src/main/res/mipmap-hdpi/ic_launcher.png
+        convert original_logo.png -resize 48x48 app/src/main/res/mipmap-mdpi/ic_launcher.png
+        convert original_logo.png -resize 96x96 app/src/main/res/mipmap-xhdpi/ic_launcher.png
+        convert original_logo.png -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+        convert original_logo.png -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+        
+        # Also copy to drawable for app logo
+        cp original_logo.png app/src/main/res/drawable/app_logo.png
+        
+        echo "Logo processed for all densities"
+
+    # --------------------------------------------------
+    # Update AndroidManifest.xml
+    # --------------------------------------------------
+    - name: Create AndroidManifest.xml
+      run: |
+        echo "Creating AndroidManifest.xml..."
+        cat > app/src/main/AndroidManifest.xml << EOF
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.yourapp.app">
+    
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MyApp"
+        android:usesCleartextTraffic="true">
+        
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        
+    </application>
+    
+</manifest>
+EOF
+        echo "AndroidManifest.xml created"
+
+    # --------------------------------------------------
+    # Update strings.xml with actual values
+    # --------------------------------------------------
+    - name: Update strings.xml with actual values
+      run: |
+        echo "Updating strings.xml..."
+        sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">${{ steps.config.outputs.APP_NAME }}</string>|g" app/src/main/res/values/strings.xml
+        sed -i "s|<string name=\"website_url\">.*</string>|<string name=\"website_url\">${{ steps.config.outputs.WEBSITE_URL }}</string>|g" app/src/main/res/values/strings.xml
+        
+        echo "Updated strings.xml content:"
+        cat app/src/main/res/values/strings.xml
+
+    # --------------------------------------------------
+    # Update package name recursively
+    # --------------------------------------------------
+    - name: Update package name in all files
+      run: |
+        echo "Updating package name from com.yourapp.app to ${{ steps.config.outputs.PACKAGE_NAME }}"
+        OLD_PACKAGE="com.yourapp.app"
+        NEW_PACKAGE="${{ steps.config.outputs.PACKAGE_NAME }}"
+        
+        # Update in AndroidManifest.xml
+        sed -i "s/package=\"$OLD_PACKAGE\"/package=\"$NEW_PACKAGE\"/g" app/src/main/AndroidManifest.xml
+        
+        # Update MainActivity.java path and package
+        NEW_PATH=$(echo "$NEW_PACKAGE" | sed 's/\./\//g')
+        mkdir -p "app/src/main/java/$NEW_PATH"
+        
+        # Update package declaration in MainActivity.java
+        sed -i "s/package $OLD_PACKAGE;/package $NEW_PACKAGE;/g" app/src/main/java/com/yourapp/app/MainActivity.java
+        
+        # Move MainActivity.java to new location
+        mv app/src/main/java/com/yourapp/app/MainActivity.java "app/src/main/java/$NEW_PATH/MainActivity.java"
+        
+        # Clean up old directory
+        rm -rf app/src/main/java/com
+        
+        echo "Package name updated successfully"
+
+    # --------------------------------------------------
+    # Create/Update build.gradle files
+    # --------------------------------------------------
+    - name: Create build.gradle files
+      run: |
+        echo "Creating build.gradle files..."
+        
+        # Root build.gradle
+        cat > build.gradle << 'EOF'
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+plugins {
+    id 'com.android.application' version '8.1.0' apply false
+}
+EOF
+        
+        # app/build.gradle
+        cat > app/build.gradle << 'EOF'
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace project.hasProperty('namespace') ? namespace : 'com.yourapp.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId project.hasProperty('applicationId') ? applicationId : 'com.yourapp.app'
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        release {
+            if (project.hasProperty('RELEASE_STORE_FILE')) {
+                storeFile file(RELEASE_STORE_FILE)
+                storePassword RELEASE_STORE_PASSWORD
+                keyAlias RELEASE_KEY_ALIAS
+                keyPassword RELEASE_KEY_PASSWORD
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+        }
+        debug {
+            signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.9.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}
+EOF
+        
+        # settings.gradle
+        cat > settings.gradle << 'EOF'
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "MyApp"
+include ':app'
+EOF
+        
+        # gradle/wrapper/gradle-wrapper.properties
+        mkdir -p gradle/wrapper
+        cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
+distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+distributionUrl=https\://services.gradle.org/distributions/gradle-8.0-bin.zip
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
+EOF
+        
+        echo "Gradle files created"
+
+    # --------------------------------------------------
+    # Update applicationId in build.gradle
+    # --------------------------------------------------
+    - name: Update applicationId in build.gradle
+      run: |
+        echo "Updating applicationId to ${{ steps.config.outputs.PACKAGE_NAME }}"
+        sed -i "s/applicationId project.hasProperty('applicationId') ? applicationId : 'com.yourapp.app'/applicationId '${{ steps.config.outputs.PACKAGE_NAME }}'/g" app/build.gradle
+        echo "Updated app/build.gradle applicationId"
+
+    # --------------------------------------------------
+    # Build SIGNED Release APK
+    # --------------------------------------------------
+    - name: Build Signed Release APK
+      run: |
+        echo "Building signed release APK..."
+        chmod +x gradlew
+        
+        # Run gradle wrapper
+        ./gradlew wrapper --gradle-version 8.0
+        
+        # Build release APK
+        ./gradlew assembleRelease
+        
+        echo "Build completed. Checking for APK..."
+        
+        # List APK files
+        find app/build/outputs/apk -name "*.apk" -type f | while read file; do
+            echo "Found APK: $file"
+            ls -la "$file"
+        done
+
+    # --------------------------------------------------
+    # Verify APK contents
+    # --------------------------------------------------
+    - name: Verify APK contents
+      run: |
+        echo "Verifying APK contents..."
+        APK_FILE=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+        
+        if [ -f "$APK_FILE" ]; then
+            echo "APK file found: $APK_FILE"
+            
+            # Check APK size
+            ls -la "$APK_FILE"
+            
+            # Use aapt to check package name
+            echo "Checking package name in APK..."
+            if command -v aapt &> /dev/null; then
+                aapt dump badging "$APK_FILE" | grep package
+            else
+                echo "aapt not available, skipping package verification"
+            fi
+            
+        else
+            echo "ERROR: No APK file found!"
+            ls -la app/build/outputs/apk/
+            ls -la app/build/outputs/apk/release/
+            exit 1
+        fi
+
+    # --------------------------------------------------
+    # Upload APK as artifact
+    # --------------------------------------------------
+    - name: Upload Signed APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.config.outputs.APP_NAME }}-${{ steps.config.outputs.USER_ID }}
+        path: app/build/outputs/apk/release/*.apk
+        retention-days: 7
+
+    # --------------------------------------------------
+    # Notify completion
+    # --------------------------------------------------
+    - name: Notify build completion
+      run: |
+        echo "Build completed successfully!"
+        curl -X POST https://savist.online/receive_workflow.php \
+          -H "Content-Type: application/json" \
+          -d "{\"run_id\": \"${{ github.run_id }}\", \"user_id\": \"${{ steps.config.outputs.USER_ID }}\", \"status\": \"completed\", \"apk_name\": \"${{ steps.config.outputs.APP_NAME }}-${{ steps.config.outputs.USER_ID }}.apk\"}" \
+          --silent || echo "Completion notification failed"
