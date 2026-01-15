@@ -251,6 +251,8 @@ jobs:
         else
           echo "Warning: strings.xml not found"
         fi
+        
+        find app/src/main/res -name "*.backup" -o -name "*.bak" -o -name "*.back" -delete 2>/dev/null || true
 
     # --------------------------------------------------
     # Update package name in all files
