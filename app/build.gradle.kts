@@ -4,10 +4,9 @@ plugins {
 }
 
 android {
+
     namespace = "com.jawadhameed.webviewtemplate"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.jawadhameed.webviewtemplate"
@@ -15,47 +14,53 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // ✅ SAFE SIGNING CONFIG
     signingConfigs {
-        create("release") {
-            // Fetch from Gradle properties
-            val keystoreFileProp = project.findProperty("KEYSTORE_FILE")?.toString() ?: ""
-            val keyAliasProp = project.findProperty("KEY_ALIAS")?.toString() ?: ""
-
-            if (keystoreFileProp.isNotEmpty() && keyAliasProp.isNotEmpty()) {
-                storeFile = file(keystoreFileProp)
-                storePassword = "android"
-                keyAlias = keyAliasProp
-                keyPassword = "android"
+        if (
+            project.hasProperty("RELEASE_STORE_FILE") &&
+            project.hasProperty("RELEASE_STORE_PASSWORD") &&
+            project.hasProperty("RELEASE_KEY_ALIAS") &&
+            project.hasProperty("RELEASE_KEY_PASSWORD")
+        ) {
+            create("release") {
+                storeFile = file(project.property("RELEASE_STORE_FILE") as String)
+                storePassword = project.property("RELEASE_STORE_PASSWORD") as String
+                keyAlias = project.property("RELEASE_KEY_ALIAS") as String
+                keyPassword = project.property("RELEASE_KEY_PASSWORD") as String
             }
         }
     }
 
     buildTypes {
         getByName("release") {
-            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
-        }
-    }
 
-    buildTypes {
-        release {
-            isMinifyEnabled = false
+            // ✅ Only attach signing if it exists
+            if (signingConfigs.findByName("release") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
+
+        getByName("debug") {
+            isMinifyEnabled = false
+        }
     }
+
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
+
     kotlinOptions {
-        jvmTarget = "11"
+        jvmTarget = "17"
     }
 }
 
@@ -65,6 +70,7 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
