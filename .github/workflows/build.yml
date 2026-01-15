@@ -20,7 +20,7 @@ jobs:
       uses: actions/checkout@v4
 
     # --------------------------------------------------
-    # Java 17 (REQUIRED)
+    # Java 17
     # --------------------------------------------------
     - name: Set up JDK 17
       uses: actions/setup-java@v4
@@ -55,6 +55,31 @@ jobs:
       uses: android-actions/setup-android@v3
 
     # --------------------------------------------------
+    # Create Keystore BEFORE build
+    # --------------------------------------------------
+    - name: Create release keystore
+      run: |
+        keytool -genkeypair \
+          -keystore release.jks \
+          -alias release \
+          -keyalg RSA \
+          -keysize 2048 \
+          -validity 10000 \
+          -storepass android \
+          -keypass android \
+          -dname "CN=Jawad, OU=Android, O=Savist, L=Bahawalpur, S=Punjab, C=PK"
+
+    # --------------------------------------------------
+    # Inject signing config via gradle.properties
+    # --------------------------------------------------
+    - name: Configure signing
+      run: |
+        echo "RELEASE_STORE_FILE=$(pwd)/release.jks" >> gradle.properties
+        echo "RELEASE_STORE_PASSWORD=android" >> gradle.properties
+        echo "RELEASE_KEY_ALIAS=release" >> gradle.properties
+        echo "RELEASE_KEY_PASSWORD=android" >> gradle.properties
+
+    # --------------------------------------------------
     # Download App Logo
     # --------------------------------------------------
     - name: Download app logo
@@ -71,7 +96,7 @@ jobs:
         sed -i "s|https://example.com|${{ steps.config.outputs.website_url }}|g" app/src/main/res/values/strings.xml
 
     # --------------------------------------------------
-    # Update Package Name Everywhere
+    # Update package name
     # --------------------------------------------------
     - name: Update package name
       run: |
@@ -82,57 +107,18 @@ jobs:
           -exec sed -i "s/$OLD_PACKAGE/$NEW_PACKAGE/g" {} +
 
     # --------------------------------------------------
-    # Build Release APK
+    # Build SIGNED Release APK
     # --------------------------------------------------
-    - name: Build Release APK
+    - name: Build Signed Release APK
       run: |
         chmod +x gradlew
         ./gradlew assembleRelease
 
     # --------------------------------------------------
-    # Create Keystore (Demo – replace with Secrets in prod)
-    # --------------------------------------------------
-    - name: Create keystore
-      run: |
-        keytool -genkeypair -v \
-          -keystore release.jks \
-          -alias release \
-          -keyalg RSA \
-          -keysize 2048 \
-          -validity 10000 \
-          -storepass android \
-          -keypass android \
-          -dname "CN=Jawad, OU=Android, O=Savist, L=Bahawalpur, S=Punjab, C=PK"
-
-    # --------------------------------------------------
-    # Sign APK (OFFICIAL)
-    # --------------------------------------------------
-    - name: Sign APK
-      run: |
-        UNSIGNED=app/build/outputs/apk/release/app-release-unsigned.apk
-        SIGNED=app/build/outputs/apk/release/${{ steps.config.outputs.app_name }}-signed.apk
-
-        $ANDROID_SDK_ROOT/build-tools/*/apksigner sign \
-          --ks release.jks \
-          --ks-key-alias release \
-          --ks-pass pass:android \
-          --key-pass pass:android \
-          --out "$SIGNED" \
-          "$UNSIGNED"
-
-    # --------------------------------------------------
-    # Verify Signature
-    # --------------------------------------------------
-    - name: Verify APK
-      run: |
-        $ANDROID_SDK_ROOT/build-tools/*/apksigner verify \
-          app/build/outputs/apk/release/${{ steps.config.outputs.app_name }}-signed.apk
-
-    # --------------------------------------------------
-    # Upload SIGNED APK
+    # Upload APK
     # --------------------------------------------------
     - name: Upload Signed APK
       uses: actions/upload-artifact@v4
       with:
         name: Signed-${{ steps.config.outputs.app_name }}-${{ steps.config.outputs.user_id }}
-        path: app/build/outputs/apk/release/*-signed.apk
+        path: app/build/outputs/apk/release/*.apk
