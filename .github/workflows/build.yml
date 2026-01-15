@@ -1,109 +1,90 @@
-name: Build WebView APK
+name: Build Android APK
 
 on:
-  repository_dispatch:
-    types: [build_apk]
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: 'Build ID'
+        required: true
+      website_url:
+        description: 'Website URL'
+        required: true
+      app_name:
+        description: 'App Name'
+        required: true
+      package_name:
+        description: 'Package Name'
+        required: true
+      logo_url:
+        description: 'Logo URL'
+        required: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    
     steps:
-      # 1️⃣ Checkout repo
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # 2️⃣ Grant execute permission to Gradle wrapper
-      - name: Grant Gradle permission
-        run: chmod +x ./gradlew
-
-      # 3️⃣ Setup Java
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      # 4️⃣ Setup Android SDK
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      # 5️⃣ Install jq for JSON parsing
-      - name: Install jq
-        run: sudo apt-get install -y jq
-
-      # 6️⃣ Download build.json config
-      - name: Download build.json
-        run: |
-          mkdir -p config
-          curl -fSL https://savist.online/builder/data/build.json -o config/build.json
-          cat config/build.json
-
-      # 7️⃣ Parse JSON and export environment variables
-      - name: Parse build config
-        id: parse
-        run: |
-          APP_NAME=$(jq -r '.app_name' config/build.json)
-          PKG=$(jq -r '.package_name' config/build.json)
-          URL=$(jq -r '.website_url' config/build.json)
-
-          if [ -z "$APP_NAME" ] || [ -z "$PKG" ] || [ -z "$URL" ]; then
-            echo "ERROR: One of the required fields is missing!"
-            exit 1
-          fi
-
-          echo "APP_NAME=$APP_NAME" >> $GITHUB_ENV
-          echo "PKG=$PKG" >> $GITHUB_ENV
-          echo "URL=$URL" >> $GITHUB_ENV
-
-      # 8️⃣ Update Gradle & strings.xml
-      - name: Update app config
-        run: |
-          sed -i "s/applicationId \".*\"/applicationId \"$PKG\"/" app/build.gradle.kts
-          sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">$APP_NAME</string>|" app/src/main/res/values/strings.xml
-          sed -i "s|<string name=\"website_url\">.*</string>|<string name=\"website_url\">$URL</string>|" app/src/main/res/values/strings.xml
-
-      # 9️⃣ Generate unique keystore
-      - name: Generate keystore
-        run: |
-          KEYSTORE_FILE="keystore_$PKG.jks"
-          echo "Generating keystore for $APP_NAME / $PKG"
-          keytool -genkeypair \
-            -keystore "$KEYSTORE_FILE" \
-            -storepass android \
-            -keypass android \
-            -alias "$PKG" \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=$APP_NAME"
-          echo "Generated keystore: $KEYSTORE_FILE"
-
-      # 🔟 Build APK
-      - name: Build APK
-        run: |
-          ./gradlew assembleRelease
-
-          # Automatically find APK
-          APK_FILE=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
-          if [ -z "$APK_FILE" ]; then
-            echo "ERROR: APK not found!"
-            exit 1
-          fi
-
-          mv "$APK_FILE" "app_$PKG.apk"
-          echo "APK built: app_$PKG.apk"
-
-      # 1️⃣1️⃣ Upload APK as artifact
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: "app_$PKG"
-          path: "app_$PKG.apk"
-
-      # 1️⃣2️⃣ Upload keystore as artifact
-      - name: Upload keystore
-        uses: actions/upload-artifact@v4
-        with:
-          name: "keystore_$PKG"
-          path: "keystore_$PKG.jks"
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      
+    - name: Set up JDK 11
+      uses: actions/setup-java@v3
+      with:
+        java-version: '11'
+        distribution: 'temurin'
+        
+    - name: Download and replace logo
+      run: |
+        curl -o app/src/main/res/mipmap-xxxhdpi/ic_launcher.png ${{ github.event.inputs.logo_url }}
+        curl -o app/src/main/res/mipmap-xxhdpi/ic_launcher.png ${{ github.event.inputs.logo_url }}
+        curl -o app/src/main/res/mipmap-xhdpi/ic_launcher.png ${{ github.event.inputs.logo_url }}
+        curl -o app/src/main/res/mipmap-hdpi/ic_launcher.png ${{ github.event.inputs.logo_url }}
+        curl -o app/src/main/res/mipmap-mdpi/ic_launcher.png ${{ github.event.inputs.logo_url }}
+        
+    - name: Update strings.xml
+      run: |
+        # Update app name
+        sed -i "s/<string name=\"app_name\">.*<\/string>/<string name=\"app_name\">${{ github.event.inputs.app_name }}<\/string>/g" app/src/main/res/values/strings.xml
+        
+        # Update website URL
+        sed -i "s/<string name=\"website_url\">.*<\/string>/<string name=\"website_url\">${{ github.event.inputs.website_url }}<\/string>/g" app/src/main/res/values/strings.xml
+        
+    - name: Update package name
+      uses: BetterQA/github-action-rename-package@v1
+      with:
+        current-package-name: 'com.example.app'
+        new-package-name: '${{ github.event.inputs.package_name }}'
+        
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v2
+      
+    - name: Build APK
+      run: |
+        chmod +x gradlew
+        ./gradlew assembleRelease
+        
+    - name: Sign APK
+      env:
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      run: |
+        # Use jarsigner or apksigner to sign the APK
+        # Assuming you have your keystore.jks in the repository
+        jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
+          -keystore keystore.jks \
+          -storepass $KEYSTORE_PASSWORD \
+          -keypass $KEY_PASSWORD \
+          app/build/outputs/apk/release/app-release-unsigned.apk \
+          key-alias
+        
+    - name: Upload APK as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-release
+        path: app/build/outputs/apk/release/*.apk
+        
+    - name: Notify completion via webhook
+      run: |
+        curl -X POST https://savist.online/update_build_status.php \
+          -H "Content-Type: application/json" \
+          -d "{\"build_id\":\"${{ github.event.inputs.build_id }}\",\"status\":\"completed\",\"run_id\":\"${{ github.run_id }}\"}"
