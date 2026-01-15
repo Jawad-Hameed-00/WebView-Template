@@ -22,7 +22,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        ref: master
+        ref: main
 
     # --------------------------------------------------
     # Set up JDK
@@ -130,14 +130,12 @@ jobs:
         echo "Configuring signing..."
         
         # Add to gradle.properties
-        cat >> gradle.properties << 'EOF'
-
-        # Auto-generated signing config
-        RELEASE_STORE_FILE=$(pwd)/release.jks
-        RELEASE_STORE_PASSWORD=android123
-        RELEASE_KEY_ALIAS=release
-        RELEASE_KEY_PASSWORD=android123
-        EOF
+        echo "" >> gradle.properties
+        echo "# Auto-generated signing config" >> gradle.properties
+        echo "RELEASE_STORE_FILE=$(pwd)/release.jks" >> gradle.properties
+        echo "RELEASE_STORE_PASSWORD=android123" >> gradle.properties
+        echo "RELEASE_KEY_ALIAS=release" >> gradle.properties
+        echo "RELEASE_KEY_PASSWORD=android123" >> gradle.properties
 
     # --------------------------------------------------
     # Download and update app logo
@@ -147,7 +145,8 @@ jobs:
         echo "Downloading logo from: ${{ steps.config.outputs.LOGO_URL }}"
         
         # Install imagemagick for image processing
-        sudo apt-get update && sudo apt-get install -y imagemagick
+        sudo apt-get update
+        sudo apt-get install -y imagemagick
         
         # Download logo
         wget -O downloaded_logo.png "${{ steps.config.outputs.LOGO_URL }}"
@@ -180,15 +179,9 @@ jobs:
               ;;
           esac
         done
-        
-        # Also update adaptive icons if they exist
-        find app/src/main/res -path "*/mipmap-anydpi-v26/*" -name "*.xml" 2>/dev/null | while read xml; do
-          echo "Found adaptive icon config: $xml"
-          # The actual adaptive icons are referenced in this XML
-        done
 
     # --------------------------------------------------
-    # Update strings.xml (FIXED - no backup files in res/)
+    # Update strings.xml (FIXED heredoc syntax)
     # --------------------------------------------------
     - name: Update strings.xml
       run: |
@@ -201,13 +194,13 @@ jobs:
           echo "strings.xml not found, creating it..."
           mkdir -p app/src/main/res/values
           STRINGS_FILE="app/src/main/res/values/strings.xml"
-          cat > "$STRINGS_FILE" << 'EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-            <string name="app_name">My App</string>
-            <string name="website_url">https://example.com</string>
-          </resources>
-          EOF
+          
+          # Create strings.xml using echo instead of heredoc
+          echo '<?xml version="1.0" encoding="utf-8"?>' > "$STRINGS_FILE"
+          echo '<resources>' >> "$STRINGS_FILE"
+          echo '    <string name="app_name">My App</string>' >> "$STRINGS_FILE"
+          echo '    <string name="website_url">https://example.com</string>' >> "$STRINGS_FILE"
+          echo '</resources>' >> "$STRINGS_FILE"
         fi
         
         echo "Using strings.xml at: $STRINGS_FILE"
@@ -221,14 +214,15 @@ jobs:
           sed -i "s|<string name=\"app_name\">.*</string>|<string name=\"app_name\">${{ steps.config.outputs.APP_NAME }}</string>|g" "$STRINGS_FILE"
         else
           # Insert before </resources>
-          sed -i "/<\/resources>/i\    <string name=\"app_name\">${{ steps.config.outputs.APP_NAME }}</string>" "$STRINGS_FILE"
+          sed -i "s|</resources>|    <string name=\"app_name\">${{ steps.config.outputs.APP_NAME }}</string>\n</resources>|g" "$STRINGS_FILE"
         fi
         
         # Update website_url
         if grep -q 'name="website_url"' "$STRINGS_FILE"; then
           sed -i "s|<string name=\"website_url\">.*</string>|<string name=\"website_url\">${{ steps.config.outputs.WEBSITE_URL }}</string>|g" "$STRINGS_FILE"
         else
-          sed -i "/<\/resources>/i\    <string name=\"website_url\">${{ steps.config.outputs.WEBSITE_URL }}</string>" "$STRINGS_FILE"
+          # Insert before </resources>
+          sed -i "s|</resources>|    <string name=\"website_url\">${{ steps.config.outputs.WEBSITE_URL }}</string>\n</resources>|g" "$STRINGS_FILE"
         fi
         
         echo "Updated strings.xml:"
@@ -255,9 +249,10 @@ jobs:
         # 1. Update AndroidManifest.xml
         if [ -f "app/src/main/AndroidManifest.xml" ]; then
           echo "Updating AndroidManifest.xml..."
-          sed -i "s/package=\"$OLD_PACKAGE\"/package=\"$NEW_PACKAGE\"/g" app/src/main/AndroidManifest.xml
-          sed -i "s/android:name=\"\./android:name=\"$OLD_PACKAGE\./g" app/src/main/AndroidManifest.xml
-          sed -i "s/android:name=\"$OLD_PACKAGE\./android:name=\"$NEW_PACKAGE\./g" app/src/main/AndroidManifest.xml
+          sed -i "s|package=\"$OLD_PACKAGE\"|package=\"$NEW_PACKAGE\"|g" app/src/main/AndroidManifest.xml
+          # Update activity names
+          sed -i "s|android:name=\"\\.|android:name=\"$OLD_PACKAGE\\.|g" app/src/main/AndroidManifest.xml
+          sed -i "s|android:name=\"$OLD_PACKAGE\\.|android:name=\"$NEW_PACKAGE\\.|g" app/src/main/AndroidManifest.xml
         fi
         
         # 2. Update build.gradle
@@ -265,42 +260,38 @@ jobs:
           echo "Updating build.gradle..."
           
           # Update namespace
-          sed -i "s/namespace ['\"]$OLD_PACKAGE['\"]/namespace '$NEW_PACKAGE'/gI" app/build.gradle
+          sed -i "s|namespace ['\"]$OLD_PACKAGE['\"]|namespace '$NEW_PACKAGE'|gI" app/build.gradle
           
           # Update applicationId
-          sed -i "s/applicationId ['\"]$OLD_PACKAGE['\"]/applicationId '$NEW_PACKAGE'/gI" app/build.gradle
+          sed -i "s|applicationId ['\"]$OLD_PACKAGE['\"]|applicationId '$NEW_PACKAGE'|gI" app/build.gradle
           
           # Also catch any other references
-          sed -i "s/['\"]$OLD_PACKAGE['\"]/'$NEW_PACKAGE'/g" app/build.gradle
+          sed -i "s|['\"]$OLD_PACKAGE['\"]|'$NEW_PACKAGE'|g" app/build.gradle
         fi
         
         # 3. Update Java/Kotlin source files
         echo "Updating source files..."
-        
-        # Create temporary directory for processing
-        TEMP_DIR="/tmp/source_update"
-        mkdir -p "$TEMP_DIR"
         
         # Process Java files
         find app/src/main/java -name "*.java" 2>/dev/null | while read file; do
           echo "  Updating Java: $file"
           
           # Update package declaration
-          sed -i "s/^package $OLD_PACKAGE;/package $NEW_PACKAGE;/g" "$file"
+          sed -i "s|^package $OLD_PACKAGE;|package $NEW_PACKAGE;|g" "$file"
           
           # Update imports
-          sed -i "s/import $OLD_PACKAGE\./import $NEW_PACKAGE\./g" "$file"
+          sed -i "s|import $OLD_PACKAGE\\.|import $NEW_PACKAGE\\.|g" "$file"
           
           # Update R imports
-          sed -i "s/import $OLD_PACKAGE\.R;/import $NEW_PACKAGE\.R;/g" "$file"
-          sed -i "s/import $OLD_PACKAGE\.databinding/import $NEW_PACKAGE\.databinding/g" "$file"
+          sed -i "s|import $OLD_PACKAGE\\.R;|import $NEW_PACKAGE\\.R;|g" "$file"
+          sed -i "s|import $OLD_PACKAGE\\.databinding|import $NEW_PACKAGE\\.databinding|g" "$file"
         done
         
         # Process Kotlin files
         find app/src/main/kotlin -name "*.kt" 2>/dev/null | while read file; do
           echo "  Updating Kotlin: $file"
-          sed -i "s/^package $OLD_PACKAGE/package $NEW_PACKAGE/g" "$file"
-          sed -i "s/import $OLD_PACKAGE\./import $NEW_PACKAGE\./g" "$file"
+          sed -i "s|^package $OLD_PACKAGE|package $NEW_PACKAGE|g" "$file"
+          sed -i "s|import $OLD_PACKAGE\\.|import $NEW_PACKAGE\\.|g" "$file"
         done
         
         # 4. Update XML files
@@ -308,15 +299,15 @@ jobs:
         find app/src -name "*.xml" 2>/dev/null | while read file; do
           # Skip build/intermediate directories
           if [[ "$file" != *"/build/"* ]]; then
-            sed -i "s/$OLD_PACKAGE\./$NEW_PACKAGE\./g" "$file"
+            sed -i "s|$OLD_PACKAGE\\.|$NEW_PACKAGE\\.|g" "$file"
           fi
         done
         
         # 5. Move source files to new package structure
         echo "Moving source files..."
         
-        OLD_PATH=$(echo "$OLD_PACKAGE" | sed 's/\./\//g')
-        NEW_PATH=$(echo "$NEW_PACKAGE" | sed 's/\./\//g')
+        OLD_PATH=$(echo "$OLD_PACKAGE" | tr '.' '/')
+        NEW_PATH=$(echo "$NEW_PACKAGE" | tr '.' '/')
         
         # Only move if source directory exists and packages are different
         if [ -d "app/src/main/java/$OLD_PATH" ] && [ "$OLD_PACKAGE" != "$NEW_PACKAGE" ]; then
@@ -363,11 +354,9 @@ jobs:
         echo "Updating gradle.properties to exclude backup files..."
         
         # Add resource exclusion patterns
-        cat >> gradle.properties << 'EOF'
-
-        # Exclude backup files from resources
-        android.resourceExcludes=**/*.backup,**/*.bak,**/*~
-         EOF
+        echo "" >> gradle.properties
+        echo "# Exclude backup files from resources" >> gradle.properties
+        echo "android.resourceExcludes=**/*.backup,**/*.bak,**/*~" >> gradle.properties
 
     # --------------------------------------------------
     # Clean project before build
@@ -391,32 +380,26 @@ jobs:
       run: |
         echo "Building signed release APK..."
         
-        # Add signing config to gradle.properties if not present
-        if ! grep -q "RELEASE_STORE_FILE" gradle.properties; then
-          cat >> gradle.properties << 'EOF'
-        RELEASE_STORE_FILE=release.jks
-        RELEASE_STORE_PASSWORD=android123
-        RELEASE_KEY_ALIAS=release
-        RELEASE_KEY_PASSWORD=android123
-        EOF
-        fi
-        
         # Ensure gradlew is executable
         if [ -f "gradlew" ]; then
           chmod +x gradlew
+          echo "Running: ./gradlew clean assembleRelease --no-daemon"
           ./gradlew clean assembleRelease --no-daemon
         else
+          echo "gradlew not found, initializing..."
           # Initialize gradle wrapper
           gradle wrapper --gradle-version 8.0
           chmod +x gradlew
+          echo "Running: ./gradlew clean assembleRelease --no-daemon"
           ./gradlew clean assembleRelease --no-daemon
         fi
         
         echo "Build completed."
         
         # List APK files
+        echo "Generated APK files:"
         find . -name "*.apk" -type f | while read file; do
-          echo "APK: $file ($(ls -lh "$file" | awk '{print $5}'))"
+          echo "  - $file ($(ls -lh "$file" | awk '{print $5}'))"
         done
 
     # --------------------------------------------------
@@ -434,18 +417,19 @@ jobs:
           
           # Install aapt2 if not available
           if ! command -v aapt2 &> /dev/null; then
-            echo "Installing aapt2..."
+            echo "Installing Android tools..."
             sudo apt-get update && sudo apt-get install -y aapt
           fi
           
           # Check APK info
           if command -v aapt &> /dev/null; then
             echo "APK info:"
-            aapt dump badging "$APK_FILE" | grep -E "(package|application-label|launchable-activity)" | head -5
+            aapt dump badging "$APK_FILE" | grep -E "(package|application-label|launchable-activity)" | head -5 || true
           fi
         else
           echo "✗ ERROR: No APK file found!"
-          find app/build -type f -name "*.apk"
+          echo "Searching for APK files..."
+          find . -type f -name "*.apk" 2>/dev/null || true
           exit 1
         fi
 
@@ -467,3 +451,4 @@ jobs:
         echo "Build completed successfully!"
         echo "App: ${{ steps.config.outputs.APP_NAME }}"
         echo "Package: ${{ steps.config.outputs.PACKAGE_NAME }}"
+        echo "User ID: ${{ steps.config.outputs.USER_ID }}"
